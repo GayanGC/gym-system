@@ -31,7 +31,8 @@ import {
   FileCheck,
   Upload,
   Coins,
-  ShoppingBag
+  ShoppingBag,
+  Award
 } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
 import { 
@@ -591,6 +592,71 @@ function DashboardContent() {
                   </CardContent>
                 </Card>
               </div>
+
+              {/* Top Gym Champions Leaderboard Row */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-1.5">
+                    <Award className="h-5 w-5 text-emerald-400" />
+                    <span>Top Gym Champions Leaderboard</span>
+                  </CardTitle>
+                  <CardDescription>Top members ranked by current streaks & lifter volume.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {[...members]
+                      .sort((a, b) => {
+                        if ((b.streak || 0) !== (a.streak || 0)) {
+                          return (b.streak || 0) - (a.streak || 0);
+                        }
+                        return (b.totalVolumeLifted || 0) - (a.totalVolumeLifted || 0);
+                      })
+                      .slice(0, 3)
+                      .map((champ, index) => {
+                        const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉';
+                        const borderHighlight = index === 0 ? 'border-amber-500/25 bg-amber-500/5' : index === 1 ? 'border-slate-500/10' : 'border-amber-700/10';
+                        return (
+                          <div 
+                            key={champ.id} 
+                            className={`p-5 border rounded-2xl flex flex-col justify-between gap-4 transition-all hover:scale-[1.01] ${borderHighlight}`}
+                          >
+                            <div className="flex items-center gap-4">
+                              <span className="text-3xl">{medal}</span>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img 
+                                src={champ.avatarUrl || `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodeURIComponent(champ.name)}`} 
+                                alt="avatar" 
+                                className="h-12 w-12 rounded-full border-2 border-slate-800"
+                              />
+                              <div>
+                                <h4 className="font-black text-sm text-white">{champ.name}</h4>
+                                <p className="text-[10px] text-slate-505 mt-0.5">Rank #{index + 1} Champion</p>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3 text-center py-2.5 bg-slate-950/40 border border-slate-900 rounded-xl font-mono text-xs">
+                              <div>
+                                <span className="text-[8px] text-slate-550 block uppercase font-bold">Streak</span>
+                                <span className="text-orange-505 font-bold">🔥 {champ.streak || 0} Days</span>
+                              </div>
+                              <div>
+                                <span className="text-[8px] text-slate-550 block uppercase font-bold">Volume</span>
+                                <span className="text-emerald-450 font-bold">{(champ.totalVolumeLifted || 0).toLocaleString()} kg</span>
+                              </div>
+                            </div>
+                            
+                            <button
+                              onClick={() => router.push(`/profile/${champ.id}?gym_id=${gym.id}`)}
+                              className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[10px] font-black uppercase tracking-widest rounded-xl text-slate-350 hover:text-white transition-all cursor-pointer text-center"
+                            >
+                              View Public Profile
+                            </button>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </CardContent>
+              </Card>
 
               {/* Sri Lankan SMS settings card & Logs */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">

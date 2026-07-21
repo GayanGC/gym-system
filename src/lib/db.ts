@@ -32,6 +32,15 @@ export interface User {
   // Specific for trainer specialization
   specialization?: string;
   createdAt: string;
+  // Social Profiles & Privacy Controls
+  bio?: string;
+  avatarUrl?: string;
+  coverUrl?: string;
+  photos?: string[]; // transformation / workout photos
+  totalVolumeLifted?: number;
+  showPhoneNumber?: boolean;
+  showRegistrationId?: boolean;
+  isProfilePrivate?: boolean;
 }
 
 export interface Exercise {
@@ -146,7 +155,7 @@ const setStorageItem = <T>(key: string, value: T): void => {
 export const initializeDatabase = () => {
   if (!isClient()) return;
 
-  const initialized = localStorage.getItem('fitpulse_initialized_v4');
+  const initialized = localStorage.getItem('fitpulse_initialized_v5');
   if (initialized) return;
 
   // Dynamic current date MM-DD for birthday wish testing
@@ -249,14 +258,25 @@ export const initializeDatabase = () => {
       name: 'Ryan Member',
       email: 'ryan@gmail.com',
       phone: '+94 77 444 5555',
-      birthday: todayBirthdayStr, // Dynamic today's date seed!
+      birthday: todayBirthdayStr,
       age: 24,
       gender: 'male',
       height: 180,
       weight: 82,
       targetWeight: 75,
       goal: 'weight-loss',
-      streak: 5,
+      streak: 14, // High streak champion!
+      totalVolumeLifted: 24500, // 24.5 tons!
+      bio: 'Powerlifter in training. Aspiring to lift heavy and stay consistent! 🏋️‍♂️',
+      avatarUrl: 'https://api.dicebear.com/7.x/adventurer/svg?seed=Ryan',
+      coverUrl: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?q=80&w=800&auto=format&fit=crop',
+      photos: [
+        'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?q=80&w=300&auto=format&fit=crop',
+        'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=80&w=300&auto=format&fit=crop'
+      ],
+      showPhoneNumber: false,
+      showRegistrationId: false,
+      isProfilePrivate: false,
       createdAt: new Date().toISOString(),
     },
     {
@@ -273,7 +293,17 @@ export const initializeDatabase = () => {
       weight: 58,
       targetWeight: 62,
       goal: 'muscle-building',
-      streak: 12,
+      streak: 9,
+      totalVolumeLifted: 18200,
+      bio: 'HIIT trainer and fitness enthusiast. Cardio queen! 🏃‍♀️🔥',
+      avatarUrl: 'https://api.dicebear.com/7.x/adventurer/svg?seed=Jessica',
+      coverUrl: 'https://images.unsplash.com/photo-1518310383802-640c2de311b2?q=80&w=800&auto=format&fit=crop',
+      photos: [
+        'https://images.unsplash.com/photo-1518310383802-640c2de311b2?q=80&w=300&auto=format&fit=crop'
+      ],
+      showPhoneNumber: true,
+      showRegistrationId: false,
+      isProfilePrivate: false,
       createdAt: new Date().toISOString(),
     },
     {
@@ -290,7 +320,15 @@ export const initializeDatabase = () => {
       weight: 90,
       targetWeight: 80,
       goal: 'weight-loss',
-      streak: 0,
+      streak: 2,
+      totalVolumeLifted: 3200,
+      bio: 'Consistency beats talent. Back on the track! 💪',
+      avatarUrl: 'https://api.dicebear.com/7.x/adventurer/svg?seed=James',
+      coverUrl: 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=80&w=800&auto=format&fit=crop',
+      photos: [],
+      showPhoneNumber: false,
+      showRegistrationId: false,
+      isProfilePrivate: true, // PRIVATE PROFILE!
       createdAt: new Date().toISOString(),
     },
     {
@@ -300,14 +338,22 @@ export const initializeDatabase = () => {
       name: 'Oliver Member',
       email: 'oliver@gmail.com',
       phone: '+94 77 666 7777',
-      birthday: todayBirthdayStr, // Dynamic today's date seed!
+      birthday: todayBirthdayStr,
       age: 31,
       gender: 'male',
       height: 172,
       weight: 70,
       targetWeight: 70,
       goal: 'general-health',
-      streak: 2,
+      streak: 4,
+      totalVolumeLifted: 8400,
+      bio: 'Keeping it fit and simple.',
+      avatarUrl: 'https://api.dicebear.com/7.x/adventurer/svg?seed=Oliver',
+      coverUrl: 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?q=80&w=800&auto=format&fit=crop',
+      photos: [],
+      showPhoneNumber: false,
+      showRegistrationId: false,
+      isProfilePrivate: false,
       createdAt: new Date().toISOString(),
     }
   ];
@@ -381,21 +427,8 @@ export const initializeDatabase = () => {
 
   const mockSales: Sale[] = [];
   const mockReengageLogs: ReengagementAttempt[] = [];
+  const mockWhatsAppLogs: WhatsAppLog[] = [];
 
-  // 8. Seed Outbound WhatsApp Logs
-  const mockWhatsAppLogs: WhatsAppLog[] = [
-    {
-      id: 'WA-001',
-      gymId: 'GYM-101',
-      receiverPhone: '+94 77 444 5555',
-      message: "Happy Birthday Ryan Member! 🎉 Wish you a strong and healthy year ahead from Gold's Gym (Colombo)! Here is a 15% discount on your next month membership renewal! 🏋️‍♂️",
-      status: 'Read',
-      type: 'Birthday Wishes',
-      createdAt: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
-    }
-  ];
-
-  // 9. Seed WhatsApp settings
   const mockWhatsAppSettings: WhatsAppSetting[] = [
     { gymId: 'GYM-101', botConnected: true, autoBirthdays: true, autoSchedules: true },
     { gymId: 'GYM-202', botConnected: false, autoBirthdays: false, autoSchedules: false }
@@ -417,6 +450,7 @@ export const initializeDatabase = () => {
   localStorage.setItem('fitpulse_initialized_v2', 'true');
   localStorage.setItem('fitpulse_initialized_v3', 'true');
   localStorage.setItem('fitpulse_initialized_v4', 'true');
+  localStorage.setItem('fitpulse_initialized_v5', 'true');
 };
 
 if (isClient()) {
@@ -486,6 +520,18 @@ export const saveUser = (user: User): void => {
   setStorageItem('fitpulse_users', filtered);
 };
 
+export const updateUserProfile = (userId: string, data: Partial<User>): void => {
+  const users = getUsers();
+  const idx = users.findIndex((u) => u.id === userId);
+  if (idx > -1) {
+    users[idx] = {
+      ...users[idx],
+      ...data,
+    };
+    setStorageItem('fitpulse_users', users);
+  }
+};
+
 // Trainer APIs
 export const getTrainers = (gymId: string): User[] => {
   const users = getUsers();
@@ -531,6 +577,11 @@ export const addMember = (gymId: string, memberData: Omit<User, 'id' | 'gymId' |
     gymId,
     role: 'MEMBER',
     streak: 0,
+    totalVolumeLifted: 0,
+    photos: [],
+    showPhoneNumber: false,
+    showRegistrationId: false,
+    isProfilePrivate: false,
     createdAt: new Date().toISOString(),
   };
   saveUser(newUser);
@@ -752,7 +803,6 @@ export const getWhatsAppSettings = (gymId: string): WhatsAppSetting => {
   const gymSettings = settings.find(s => s.gymId === gymId);
   if (gymSettings) return gymSettings;
 
-  // Return defaults
   return {
     gymId,
     botConnected: false,

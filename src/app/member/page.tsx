@@ -25,7 +25,14 @@ import {
   Building2,
   FileCheck,
   Upload,
-  Globe
+  Globe,
+  Settings,
+  User,
+  Image as ImageIcon,
+  Camera,
+  Lock,
+  ToggleLeft,
+  ToggleRight
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useToast } from '@/components/ui/toast';
@@ -37,8 +44,10 @@ import {
   logAttendance,
   getPaymentSlips,
   addPaymentSlip,
+  getMembers,
+  updateUserProfile,
   Gym,
-  User,
+  User as UserType,
   WorkoutPlan,
   Attendance,
   PaymentSlip
@@ -67,12 +76,12 @@ function MemberContent() {
   const [gymId, setGymId] = useState<string | null>(null);
   const [memberId, setMemberId] = useState<string | null>(null);
   const [gym, setGym] = useState<Gym | null>(null);
-  const [member, setMember] = useState<User | null>(null);
+  const [member, setMember] = useState<UserType | null>(null);
   const [workoutPlan, setWorkoutPlan] = useState<WorkoutPlan | null>(null);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   
   // Navigation / Tabs (Mobile bottom bar simulation)
-  const [activeTab, setActiveTab] = useState<'home' | 'workout' | 'diet' | 'payment'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'workout' | 'diet' | 'payment' | 'settings'>('home');
   const [checkingIn, setCheckingIn] = useState(false);
 
   // Localization
@@ -84,6 +93,14 @@ function MemberContent() {
   const [slipFileName, setSlipFileName] = useState('');
   const [memberSlips, setMemberSlips] = useState<PaymentSlip[]>([]);
   const [processingPayHere, setProcessingPayHere] = useState(false);
+
+  // Social & Privacy states
+  const [bio, setBio] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState('');
+  const [showPhoneNumber, setShowPhoneNumber] = useState(false);
+  const [showRegistrationId, setShowRegistrationId] = useState(false);
+  const [isProfilePrivate, setIsProfilePrivate] = useState(false);
+  const [photoUrlInput, setPhotoUrlInput] = useState('');
 
   // Load details
   const loadMemberData = (gId: string, mId: string) => {
@@ -105,6 +122,12 @@ function MemberContent() {
     setWorkoutPlan(getMemberWorkoutPlan(gId, mId));
     setAttendance(getMemberAttendance(gId, mId));
     setMemberSlips(getPaymentSlips('MEMBER', mId));
+    
+    setBio(currentMember.bio || '');
+    setAvatarUrl(currentMember.avatarUrl || `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodeURIComponent(currentMember.name)}`);
+    setShowPhoneNumber(!!currentMember.showPhoneNumber);
+    setShowRegistrationId(!!currentMember.showRegistrationId);
+    setIsProfilePrivate(!!currentMember.isProfilePrivate);
   };
 
   useEffect(() => {
@@ -243,6 +266,49 @@ function MemberContent() {
 
   const toggleLanguage = () => {
     setLang((prev) => (prev === 'en' ? 'si' : 'en'));
+  };
+
+  const handleUpdatePrivacySettings = (key: 'showPhoneNumber' | 'showRegistrationId' | 'isProfilePrivate', val: boolean) => {
+    if (!memberId) return;
+    updateUserProfile(memberId, { [key]: val });
+    if (key === 'showPhoneNumber') setShowPhoneNumber(val);
+    if (key === 'showRegistrationId') setShowRegistrationId(val);
+    if (key === 'isProfilePrivate') setIsProfilePrivate(val);
+    toast({
+      title: 'Settings Saved',
+      description: 'Privacy switch updated successfully.',
+      type: 'success',
+    });
+  };
+
+  const handleSaveBioAndAvatar = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!memberId) return;
+    updateUserProfile(memberId, { bio, avatarUrl });
+    toast({
+      title: 'Profile Updated',
+      description: 'Your bio and avatar have been saved.',
+      type: 'success',
+    });
+  };
+
+  const handleUploadPhoto = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!memberId || !member) return;
+    if (!photoUrlInput.trim()) {
+      toast({ title: 'Input Required', description: 'Please enter a valid photo URL.', type: 'error' });
+      return;
+    }
+    const currentPhotos = member.photos || [];
+    const updatedPhotos = [...currentPhotos, photoUrlInput.trim()];
+    updateUserProfile(memberId, { photos: updatedPhotos });
+    setPhotoUrlInput('');
+    loadMemberData(gymId || '', memberId);
+    toast({
+      title: 'Photo Uploaded!',
+      description: 'Added to your transformation gallery.',
+      type: 'success',
+    });
   };
 
   if (!gym || !member) {
@@ -447,6 +513,60 @@ function MemberContent() {
                   </p>
                 </div>
                 <ChevronRight className="h-4 w-4 text-slate-650" />
+              </CardContent>
+            </Card>
+
+            {/* Top Gym Champions Widget */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-bold flex items-center gap-1.5">
+                  <Award className="h-4.5 w-4.5 text-emerald-400" />
+                  <span>Top Gym Champions</span>
+                </CardTitle>
+                <CardDescription className="text-[10px]">Top members ranked by current streaks & lifter volume.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2.5">
+                {(gymId ? getMembers(gymId) : [])
+                  .sort((a, b) => {
+                    if ((b.streak || 0) !== (a.streak || 0)) {
+                      return (b.streak || 0) - (a.streak || 0);
+                    }
+                    return (b.totalVolumeLifted || 0) - (a.totalVolumeLifted || 0);
+                  })
+                  .slice(0, 3)
+                  .map((champ, index) => {
+                    const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉';
+                    const borderHighlight = index === 0 ? 'border-amber-500/30' : index === 1 ? 'border-slate-500/20' : 'border-amber-700/20';
+                    return (
+                      <div 
+                        key={champ.id} 
+                        className={`p-3 bg-slate-950/60 border rounded-xl flex justify-between items-center gap-2 ${borderHighlight}`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-lg">{medal}</span>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img 
+                            src={champ.avatarUrl || `https://api.dicebear.com/7.x/adventurer/svg?seed=${encodeURIComponent(champ.name)}`} 
+                            alt="avatar" 
+                            className="h-8.5 w-8.5 rounded-full border border-slate-800"
+                          />
+                          <div>
+                            <p className="font-bold text-xs text-white leading-tight">{champ.name}</p>
+                            <p className="text-[9px] text-slate-550 mt-0.5 font-mono">
+                              🔥 {champ.streak || 0} Days • 🏋️‍♂️ {(champ.totalVolumeLifted || 0).toLocaleString()} kg
+                            </p>
+                          </div>
+                        </div>
+                        
+                        <button
+                          onClick={() => router.push(`/profile/${champ.id}?gym_id=${gym.id}`)}
+                          className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-[9px] font-bold uppercase rounded-lg text-slate-350 hover:text-white transition-all cursor-pointer"
+                        >
+                          View
+                        </button>
+                      </div>
+                    );
+                  })}
               </CardContent>
             </Card>
           </div>
@@ -718,8 +838,165 @@ function MemberContent() {
           </div>
         )}
 
+        {/* TAB 5: PROFILE & PRIVACY SETTINGS */}
+        {activeTab === 'settings' && (
+          <div className="space-y-6 animate-in fade-in duration-300 z-10 w-full">
+            {/* Bio & Avatar Setup */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-bold flex items-center gap-1.5">
+                  <User className="h-4.5 w-4.5 text-emerald-400" /> Bio & Profile Avatar
+                </CardTitle>
+                <CardDescription className="text-[10px]">Customize how other members see your profile.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleSaveBioAndAvatar} className="space-y-4">
+                  <div>
+                    <label className="block text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-1">
+                      Short Bio
+                    </label>
+                    <textarea
+                      value={bio}
+                      onChange={(e) => setBio(e.target.value)}
+                      placeholder="e.g. FitPulse lifter, focusing on consistency and powerlifting."
+                      className="w-full bg-slate-950 border border-slate-900 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none h-20 resize-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-1">
+                      Avatar seed parameter (Dicebear seed)
+                    </label>
+                    <input
+                      type="text"
+                      value={avatarUrl}
+                      onChange={(e) => setAvatarUrl(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-900 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    Save Biography
+                  </button>
+                </form>
+              </CardContent>
+            </Card>
+
+            {/* Privacy Toggles */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-bold flex items-center gap-1.5">
+                  <Lock className="h-4.5 w-4.5 text-emerald-400" /> Member Privacy Controls
+                </CardTitle>
+                <CardDescription className="text-[10px]">Manage who can see your telephone and registration ID.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex justify-between items-center py-2 border-b border-slate-900">
+                  <div>
+                    <p className="text-xs font-bold text-white">Private Profile Mode</p>
+                    <p className="text-[9px] text-slate-500 mt-0.5">Hides transformation photos & stats from other gym members.</p>
+                  </div>
+                  <button onClick={() => handleUpdatePrivacySettings('isProfilePrivate', !isProfilePrivate)} className="cursor-pointer">
+                    {isProfilePrivate ? (
+                      <ToggleRight className="h-8 w-8 text-emerald-400" />
+                    ) : (
+                      <ToggleLeft className="h-8 w-8 text-slate-650" />
+                    )}
+                  </button>
+                </div>
+
+                <div className="flex justify-between items-center py-2 border-b border-slate-900">
+                  <div>
+                    <p className="text-xs font-bold text-white">Display Phone Number</p>
+                    <p className="text-[9px] text-slate-500 mt-0.5">Toggles phone visibility on your public profile page.</p>
+                  </div>
+                  <button onClick={() => handleUpdatePrivacySettings('showPhoneNumber', !showPhoneNumber)} className="cursor-pointer">
+                    {showPhoneNumber ? (
+                      <ToggleRight className="h-8 w-8 text-emerald-400" />
+                    ) : (
+                      <ToggleLeft className="h-8 w-8 text-slate-650" />
+                    )}
+                  </button>
+                </div>
+
+                <div className="flex justify-between items-center py-2">
+                  <div>
+                    <p className="text-xs font-bold text-white">Display Registration ID</p>
+                    <p className="text-[9px] text-slate-500 mt-0.5">Toggles membership number (e.g. MBR-101) visibility.</p>
+                  </div>
+                  <button onClick={() => handleUpdatePrivacySettings('showRegistrationId', !showRegistrationId)} className="cursor-pointer">
+                    {showRegistrationId ? (
+                      <ToggleRight className="h-8 w-8 text-emerald-400" />
+                    ) : (
+                      <ToggleLeft className="h-8 w-8 text-slate-650" />
+                    )}
+                  </button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Transformation photo gallery uploader */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-bold flex items-center gap-1.5">
+                  <Camera className="h-4.5 w-4.5 text-emerald-400" /> Add Transformation Photo
+                </CardTitle>
+                <CardDescription className="text-[10px]">Add workout progress selfies to your transformation grid.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleUploadPhoto} className="space-y-4">
+                  <div>
+                    <label className="block text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-1">
+                      Photo Image URL
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. https://images.unsplash.com/photo-1517838277536-f5f99be501cd"
+                      value={photoUrlInput}
+                      onChange={(e) => setPhotoUrlInput(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-900 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <ImageIcon className="h-4 w-4" /> Upload Transformation Selfie
+                  </button>
+                </form>
+
+                {/* Preconfigured helper links for testing */}
+                <div className="mt-4 pt-3 border-t border-slate-900 text-left">
+                  <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider block mb-1">Quick Sample Photos (Tap to select)</span>
+                  <div className="flex flex-col gap-1.5 text-[9px]">
+                    <button 
+                      onClick={() => setPhotoUrlInput('https://images.unsplash.com/photo-1517838277536-f5f99be501cd?q=80&w=300&auto=format&fit=crop')}
+                      className="text-emerald-400 hover:underline text-left"
+                      type="button"
+                    >
+                      🔗 Squat/Strength Training progress photo
+                    </button>
+                    <button 
+                      onClick={() => setPhotoUrlInput('https://images.unsplash.com/photo-1518310383802-640c2de311b2?q=80&w=300&auto=format&fit=crop')}
+                      className="text-emerald-400 hover:underline text-left"
+                      type="button"
+                    >
+                      🔗 Cardio/HIIT progress photo
+                    </button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
         {/* Dynamic bottom bar */}
-        <nav className="fixed bottom-0 inset-x-0 bg-slate-950/80 border-t border-slate-900 py-3 px-6 flex justify-around items-center backdrop-blur-md z-30">
+        <nav className="fixed bottom-0 inset-x-0 bg-slate-950/80 border-t border-slate-900 py-3 px-4 flex justify-between items-center backdrop-blur-md z-30">
           <button
             onClick={() => setActiveTab('home')}
             className={`flex flex-col items-center gap-1 text-[10px] font-bold tracking-wide transition-colors cursor-pointer ${
@@ -758,6 +1035,16 @@ function MemberContent() {
           >
             <CreditCard className="h-5 w-5" />
             {getTranslation(lang, 'payment')}
+          </button>
+
+          <button
+            onClick={() => setActiveTab('settings')}
+            className={`flex flex-col items-center gap-1 text-[10px] font-bold tracking-wide transition-colors cursor-pointer ${
+              activeTab === 'settings' ? 'text-emerald-400' : 'text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            <Settings className="h-5 w-5" />
+            Settings
           </button>
         </nav>
 
