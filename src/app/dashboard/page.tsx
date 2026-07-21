@@ -450,6 +450,15 @@ function DashboardContent() {
               <Users className="h-4.5 w-4.5" />
               Retention Engine
             </button>
+
+            <button
+              type="button"
+              onClick={() => router.push(`/dashboard/whatsapp?gym_id=${gym.id}`)}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group font-semibold text-sm text-slate-400 hover:text-slate-200 hover:bg-slate-900/50 border border-transparent cursor-pointer"
+            >
+              <MessageSquare className="h-4.5 w-4.5" />
+              WhatsApp Bot
+            </button>
           </nav>
 
           {/* User profile / active state at bottom */}
@@ -909,11 +918,12 @@ function DashboardContent() {
                                 </td>
                                 <td className="py-3 px-4 text-xs">
                                   {slip.status === 'Approved' && <span className="text-emerald-400 font-bold">Approved</span>}
+                                  {slip.status === 'AI Verified' && <span className="text-cyan-405 font-bold uppercase tracking-wider text-[9px] px-2 py-0.5 bg-cyan-500/10 border border-cyan-500/20 rounded-md inline-flex items-center gap-1">AI Verified</span>}
                                   {slip.status === 'Pending' && <span className="text-amber-400 font-bold">Pending</span>}
                                   {slip.status === 'Rejected' && <span className="text-rose-400 font-bold">Rejected</span>}
                                 </td>
                                 <td className="py-3 px-4 text-right">
-                                  {slip.status === 'Pending' ? (
+                                  {slip.status === 'Pending' || slip.status === 'AI Verified' ? (
                                     <div className="flex justify-end gap-1.5">
                                       <button
                                         onClick={() => handleMemberSlipAction(slip.id, 'Approved')}

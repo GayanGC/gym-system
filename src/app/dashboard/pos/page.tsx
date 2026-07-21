@@ -23,7 +23,8 @@ import {
   LogOut,
   ChevronRight,
   TrendingUp,
-  AlertTriangle
+  AlertTriangle,
+  MessageSquare
 } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
 import { 
@@ -386,6 +387,13 @@ function PosContent() {
               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group font-semibold text-slate-400 hover:text-slate-250 hover:bg-slate-900/50 text-sm cursor-pointer"
             >
               <Users className="h-4.5 w-4.5" /> Retention Engine
+            </button>
+
+            <button
+              onClick={() => router.push(`/dashboard/whatsapp?gym_id=${gym.id}`)}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group font-semibold text-slate-400 hover:text-slate-250 hover:bg-slate-900/50 text-sm cursor-pointer"
+            >
+              <MessageSquare className="h-4.5 w-4.5" /> WhatsApp Bot
             </button>
           </nav>
 

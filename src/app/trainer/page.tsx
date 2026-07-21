@@ -16,8 +16,10 @@ import {
   Calendar,
   LogOut,
   User,
-  ActivitySquare
+  ActivitySquare,
+  MessageSquare
 } from 'lucide-react';
+import { sendWhatsAppMsg } from '@/lib/whatsapp';
 import { useToast } from '@/components/ui/toast';
 import { 
   getGym, 
@@ -119,6 +121,29 @@ function TrainerContent() {
       setExercises([]);
     }
   }, [gymId, selectedMember]);
+
+  const handleSendWhatsApp = () => {
+    if (!gymId || !selectedMember || !trainerId || !gym || !trainer || exercises.length === 0) return;
+
+    const exerciseText = exercises.map((ex) => `- ${ex.name}: ${ex.sets} sets × ${ex.reps} reps`).join('\n');
+    const message = `Hi ${selectedMember.name}, here is your workout routine from Coach ${trainer.name} at ${gym.gymName}:\n\n${exerciseText}\n\nLet's get to work! 🏋️‍♂️`;
+
+    const result = sendWhatsAppMsg(gymId, selectedMember.phone || '', message, 'Workout Schedule');
+
+    if (result.success) {
+      toast({
+        title: 'WhatsApp Dispatched!',
+        description: `Workout routine shared with ${selectedMember.name} successfully.`,
+        type: 'success',
+      });
+    } else {
+      toast({
+        title: 'WhatsApp Failed',
+        description: result.error || 'Bot is disconnected.',
+        type: 'error',
+      });
+    }
+  };
 
   const handleAddExercise = (e: React.FormEvent) => {
     e.preventDefault();
@@ -406,13 +431,24 @@ function TrainerContent() {
                       )}
                     </div>
 
-                    <button
-                      onClick={handleAssignPlan}
-                      disabled={exercises.length === 0}
-                      className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-30 disabled:pointer-events-none text-slate-950 font-black text-xs uppercase tracking-widest rounded-xl transition-all cursor-pointer shadow-lg flex items-center justify-center gap-1.5"
-                    >
-                      <Sparkles className="h-4 w-4 animate-pulse" /> Save & Assign Plan
-                    </button>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <button
+                        onClick={handleAssignPlan}
+                        disabled={exercises.length === 0}
+                        className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-30 disabled:pointer-events-none text-slate-950 font-black text-xs uppercase tracking-widest rounded-xl transition-all cursor-pointer shadow-lg flex items-center justify-center gap-1.5"
+                      >
+                        <Sparkles className="h-4 w-4 animate-pulse" /> Save Plan
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleSendWhatsApp}
+                        disabled={exercises.length === 0}
+                        className="flex-1 py-3 border border-[#25D366]/20 bg-[#25D366]/10 hover:bg-[#25D366]/20 text-[#25D366] disabled:opacity-30 disabled:pointer-events-none font-bold text-xs uppercase tracking-widest rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        <MessageSquare className="h-4 w-4 text-[#25D366]" /> Share WA
+                      </button>
+                    </div>
                   </CardContent>
                 </Card>
               </div>

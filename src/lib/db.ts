@@ -20,6 +20,7 @@ export interface User {
   name: string;
   email?: string;
   phone?: string;
+  birthday?: string; // format: MM-DD
   // Specific for member stats
   age?: number;
   gender?: string;
@@ -62,7 +63,7 @@ export interface PaymentSlip {
   amount: number;
   bankName: string;
   slipImage: string; // File name or description
-  status: 'Pending' | 'Approved' | 'Rejected';
+  status: 'Pending' | 'Approved' | 'Rejected' | 'AI Verified';
   createdAt: string;
 }
 
@@ -111,6 +112,23 @@ export interface ReengagementAttempt {
   sentAt: string;
 }
 
+export interface WhatsAppLog {
+  id: string;
+  gymId: string;
+  receiverPhone: string;
+  message: string;
+  status: 'Sent' | 'Delivered' | 'Read';
+  type: string; // e.g. 'Birthday' | 'Schedule' | 'Payment Slip Receipt'
+  createdAt: string;
+}
+
+export interface WhatsAppSetting {
+  gymId: string;
+  botConnected: boolean;
+  autoBirthdays: boolean;
+  autoSchedules: boolean;
+}
+
 const isClient = () => typeof window !== 'undefined';
 
 const getStorageItem = <T>(key: string, defaultValue: T): T => {
@@ -128,8 +146,14 @@ const setStorageItem = <T>(key: string, value: T): void => {
 export const initializeDatabase = () => {
   if (!isClient()) return;
 
-  const initialized = localStorage.getItem('fitpulse_initialized_v3');
+  const initialized = localStorage.getItem('fitpulse_initialized_v4');
   if (initialized) return;
+
+  // Dynamic current date MM-DD for birthday wish testing
+  const todayObj = new Date();
+  const mm = String(todayObj.getMonth() + 1).padStart(2, '0');
+  const dd = String(todayObj.getDate()).padStart(2, '0');
+  const todayBirthdayStr = `${mm}-${dd}`;
 
   // 1. Seed Gyms
   const mockGyms: Gym[] = [
@@ -225,6 +249,7 @@ export const initializeDatabase = () => {
       name: 'Ryan Member',
       email: 'ryan@gmail.com',
       phone: '+94 77 444 5555',
+      birthday: todayBirthdayStr, // Dynamic today's date seed!
       age: 24,
       gender: 'male',
       height: 180,
@@ -241,6 +266,7 @@ export const initializeDatabase = () => {
       name: 'Jessica Member',
       email: 'jessica@gmail.com',
       phone: '+94 77 555 6666',
+      birthday: '12-05',
       age: 28,
       gender: 'female',
       height: 165,
@@ -257,6 +283,7 @@ export const initializeDatabase = () => {
       name: 'James Member',
       email: 'james@gmail.com',
       phone: '+94 77 888 9999',
+      birthday: '04-18',
       age: 35,
       gender: 'male',
       height: 175,
@@ -273,6 +300,7 @@ export const initializeDatabase = () => {
       name: 'Oliver Member',
       email: 'oliver@gmail.com',
       phone: '+94 77 666 7777',
+      birthday: todayBirthdayStr, // Dynamic today's date seed!
       age: 31,
       gender: 'male',
       height: 172,
@@ -299,22 +327,13 @@ export const initializeDatabase = () => {
     }
   ];
 
-  // Seeding checkins for inactivity tests
   const mockAttendance: Attendance[] = [
-    // Ryan Member - active today
     { id: 'ATT-1', gymId: 'GYM-101', memberId: 'MBR-101', timestamp: new Date().toISOString() },
-    
-    // Jessica Member - last checked in 6 days ago (At-Risk)
     { id: 'ATT-2', gymId: 'GYM-101', memberId: 'MBR-102', timestamp: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString() },
-    
-    // James Member - last checked in 12 days ago (Critical)
     { id: 'ATT-3', gymId: 'GYM-101', memberId: 'MBR-103', timestamp: new Date(Date.now() - 12 * 24 * 60 * 60 * 1000).toISOString() },
-
-    // Oliver Member - checked in 7 days ago
     { id: 'ATT-4', gymId: 'GYM-202', memberId: 'MBR-201', timestamp: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString() }
   ];
 
-  // 5. Seed Payment Slips
   const mockSlips: PaymentSlip[] = [
     {
       id: 'SLIP-001',
@@ -338,7 +357,6 @@ export const initializeDatabase = () => {
     }
   ];
 
-  // 6. Seed SMS logs
   const mockSmsLogs: SmsLog[] = [
     {
       id: 'SMS-1',
@@ -350,7 +368,6 @@ export const initializeDatabase = () => {
     }
   ];
 
-  // 7. Seed Inventory Items LKR
   const mockInventory: InventoryItem[] = [
     { id: 'INV-101', gymId: 'GYM-101', name: 'Whey Protein (1kg)', stock: 15, unitCost: 11000, sellingPrice: 14500 },
     { id: 'INV-102', gymId: 'GYM-101', name: 'Micronized Creatine (250g)', stock: 25, unitCost: 4000, sellingPrice: 6500 },
@@ -358,13 +375,31 @@ export const initializeDatabase = () => {
     { id: 'INV-104', gymId: 'GYM-101', name: 'Mineral Water (1L)', stock: 60, unitCost: 80, sellingPrice: 150 },
     { id: 'INV-105', gymId: 'GYM-101', name: 'Oatmeal Protein Bar', stock: 45, unitCost: 300, sellingPrice: 480 },
     
-    // Gym 202
     { id: 'INV-201', gymId: 'GYM-202', name: 'Whey Protein (1kg)', stock: 8, unitCost: 11000, sellingPrice: 15000 },
     { id: 'INV-202', gymId: 'GYM-202', name: 'Micronized Creatine (250g)', stock: 15, unitCost: 4000, sellingPrice: 7000 }
   ];
 
   const mockSales: Sale[] = [];
   const mockReengageLogs: ReengagementAttempt[] = [];
+
+  // 8. Seed Outbound WhatsApp Logs
+  const mockWhatsAppLogs: WhatsAppLog[] = [
+    {
+      id: 'WA-001',
+      gymId: 'GYM-101',
+      receiverPhone: '+94 77 444 5555',
+      message: "Happy Birthday Ryan Member! 🎉 Wish you a strong and healthy year ahead from Gold's Gym (Colombo)! Here is a 15% discount on your next month membership renewal! 🏋️‍♂️",
+      status: 'Read',
+      type: 'Birthday Wishes',
+      createdAt: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
+    }
+  ];
+
+  // 9. Seed WhatsApp settings
+  const mockWhatsAppSettings: WhatsAppSetting[] = [
+    { gymId: 'GYM-101', botConnected: true, autoBirthdays: true, autoSchedules: true },
+    { gymId: 'GYM-202', botConnected: false, autoBirthdays: false, autoSchedules: false }
+  ];
 
   setStorageItem('fitpulse_gyms', mockGyms);
   setStorageItem('fitpulse_users', mockUsers);
@@ -375,10 +410,13 @@ export const initializeDatabase = () => {
   setStorageItem('fitpulse_inventory', mockInventory);
   setStorageItem('fitpulse_sales', mockSales);
   setStorageItem('fitpulse_reengage', mockReengageLogs);
+  setStorageItem('fitpulse_whatsapp_logs', mockWhatsAppLogs);
+  setStorageItem('fitpulse_whatsapp_settings', mockWhatsAppSettings);
   
   localStorage.setItem('fitpulse_initialized', 'true');
   localStorage.setItem('fitpulse_initialized_v2', 'true');
   localStorage.setItem('fitpulse_initialized_v3', 'true');
+  localStorage.setItem('fitpulse_initialized_v4', 'true');
 };
 
 if (isClient()) {
@@ -580,7 +618,7 @@ export const addPaymentSlip = (slipData: Omit<PaymentSlip, 'id' | 'status' | 'cr
   return newSlip;
 };
 
-export const updatePaymentSlipStatus = (slipId: string, status: 'Approved' | 'Rejected'): void => {
+export const updatePaymentSlipStatus = (slipId: string, status: 'Approved' | 'Rejected' | 'AI Verified'): void => {
   const slips = getStorageItem<PaymentSlip[]>('fitpulse_slips', []);
   const index = slips.findIndex((s) => s.id === slipId);
   if (index > -1) {
@@ -659,7 +697,6 @@ export const addSale = (saleData: Omit<Sale, 'id' | 'createdAt'>): Sale => {
   sales.push(newSale);
   setStorageItem('fitpulse_sales', sales);
 
-  // Decrement stock levels for each item purchased
   newSale.items.forEach((itm) => {
     updateStock(itm.itemId, -itm.qty);
   });
@@ -690,4 +727,43 @@ export const addReengagementLog = (gymId: string, memberId: string, message: str
 
   logs.push(newLog);
   setStorageItem('fitpulse_reengage', logs);
+};
+
+// --- WhatsApp Business APIs ---
+export const getWhatsAppLogs = (gymId: string): WhatsAppLog[] => {
+  const logs = getStorageItem<WhatsAppLog[]>('fitpulse_whatsapp_logs', []);
+  return logs.filter((l) => l.gymId === gymId);
+};
+
+export const addWhatsAppLog = (logData: Omit<WhatsAppLog, 'id' | 'createdAt'>): WhatsAppLog => {
+  const logs = getStorageItem<WhatsAppLog[]>('fitpulse_whatsapp_logs', []);
+  const newLog: WhatsAppLog = {
+    ...logData,
+    id: `WA-${Math.floor(1000 + Math.random() * 9000)}`,
+    createdAt: new Date().toISOString(),
+  };
+  logs.push(newLog);
+  setStorageItem('fitpulse_whatsapp_logs', logs);
+  return newLog;
+};
+
+export const getWhatsAppSettings = (gymId: string): WhatsAppSetting => {
+  const settings = getStorageItem<WhatsAppSetting[]>('fitpulse_whatsapp_settings', []);
+  const gymSettings = settings.find(s => s.gymId === gymId);
+  if (gymSettings) return gymSettings;
+
+  // Return defaults
+  return {
+    gymId,
+    botConnected: false,
+    autoBirthdays: false,
+    autoSchedules: false,
+  };
+};
+
+export const saveWhatsAppSettings = (settingsData: WhatsAppSetting): void => {
+  const settings = getStorageItem<WhatsAppSetting[]>('fitpulse_whatsapp_settings', []);
+  const filtered = settings.filter(s => s.gymId !== settingsData.gymId);
+  filtered.push(settingsData);
+  setStorageItem('fitpulse_whatsapp_settings', filtered);
 };
