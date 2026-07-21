@@ -30,7 +30,8 @@ import {
   FileText,
   FileCheck,
   Upload,
-  Coins
+  Coins,
+  ShoppingBag
 } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
 import { 
@@ -428,6 +429,26 @@ function DashboardContent() {
               <CreditCard className="h-4.5 w-4.5" />
               Billing & Licensing
               <ChevronRight className={`ml-auto h-4 w-4 transition-transform ${activeTab === 'billing' ? 'translate-x-0' : 'opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5'}`} />
+            </button>
+
+            <div className="h-[1px] bg-slate-900 my-4 font-semibold" />
+
+            <button
+              type="button"
+              onClick={() => router.push(`/dashboard/pos?gym_id=${gym.id}`)}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group font-semibold text-sm text-slate-400 hover:text-slate-200 hover:bg-slate-900/50 border border-transparent cursor-pointer"
+            >
+              <ShoppingBag className="h-4.5 w-4.5" />
+              Supplement POS
+            </button>
+
+            <button
+              type="button"
+              onClick={() => router.push(`/dashboard/retention?gym_id=${gym.id}`)}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group font-semibold text-sm text-slate-400 hover:text-slate-200 hover:bg-slate-900/50 border border-transparent cursor-pointer"
+            >
+              <Users className="h-4.5 w-4.5" />
+              Retention Engine
             </button>
           </nav>
 

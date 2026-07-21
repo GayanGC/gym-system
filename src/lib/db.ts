@@ -75,6 +75,42 @@ export interface SmsLog {
   createdAt: string;
 }
 
+export interface InventoryItem {
+  id: string;
+  gymId: string;
+  name: string;
+  stock: number;
+  unitCost: number;
+  sellingPrice: number;
+}
+
+export interface SaleItem {
+  itemId: string;
+  name: string;
+  qty: number;
+  price: number;
+}
+
+export interface Sale {
+  id: string;
+  gymId: string;
+  memberId: string; // 'Guest' or memberId
+  memberName: string; // member name or 'Guest'
+  items: SaleItem[];
+  totalAmount: number;
+  paymentMethod: 'Cash' | 'LANKAQR' | 'Credit';
+  createdAt: string;
+}
+
+export interface ReengagementAttempt {
+  id: string;
+  gymId: string;
+  memberId: string;
+  memberName: string;
+  message: string;
+  sentAt: string;
+}
+
 const isClient = () => typeof window !== 'undefined';
 
 const getStorageItem = <T>(key: string, defaultValue: T): T => {
@@ -92,7 +128,7 @@ const setStorageItem = <T>(key: string, value: T): void => {
 export const initializeDatabase = () => {
   if (!isClient()) return;
 
-  const initialized = localStorage.getItem('fitpulse_initialized_v2');
+  const initialized = localStorage.getItem('fitpulse_initialized_v3');
   if (initialized) return;
 
   // 1. Seed Gyms
@@ -215,6 +251,22 @@ export const initializeDatabase = () => {
       createdAt: new Date().toISOString(),
     },
     {
+      id: 'MBR-103',
+      gymId: 'GYM-101',
+      role: 'MEMBER',
+      name: 'James Member',
+      email: 'james@gmail.com',
+      phone: '+94 77 888 9999',
+      age: 35,
+      gender: 'male',
+      height: 175,
+      weight: 90,
+      targetWeight: 80,
+      goal: 'weight-loss',
+      streak: 0,
+      createdAt: new Date().toISOString(),
+    },
+    {
       id: 'MBR-201',
       gymId: 'GYM-202',
       role: 'MEMBER',
@@ -247,8 +299,19 @@ export const initializeDatabase = () => {
     }
   ];
 
+  // Seeding checkins for inactivity tests
   const mockAttendance: Attendance[] = [
-    { id: 'ATT-1', gymId: 'GYM-101', memberId: 'MBR-101', timestamp: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() }
+    // Ryan Member - active today
+    { id: 'ATT-1', gymId: 'GYM-101', memberId: 'MBR-101', timestamp: new Date().toISOString() },
+    
+    // Jessica Member - last checked in 6 days ago (At-Risk)
+    { id: 'ATT-2', gymId: 'GYM-101', memberId: 'MBR-102', timestamp: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000).toISOString() },
+    
+    // James Member - last checked in 12 days ago (Critical)
+    { id: 'ATT-3', gymId: 'GYM-101', memberId: 'MBR-103', timestamp: new Date(Date.now() - 12 * 24 * 60 * 60 * 1000).toISOString() },
+
+    // Oliver Member - checked in 7 days ago
+    { id: 'ATT-4', gymId: 'GYM-202', memberId: 'MBR-201', timestamp: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString() }
   ];
 
   // 5. Seed Payment Slips
@@ -256,8 +319,8 @@ export const initializeDatabase = () => {
     {
       id: 'SLIP-001',
       tenantType: 'MEMBER',
-      referenceId: 'MBR-101', // Ryan Member Gold's Gym
-      amount: 4500, // Monthly member fee LKR
+      referenceId: 'MBR-101',
+      amount: 4500,
       bankName: 'Commercial Bank',
       slipImage: 'ryan_july_slip.jpg',
       status: 'Pending',
@@ -266,8 +329,8 @@ export const initializeDatabase = () => {
     {
       id: 'SLIP-002',
       tenantType: 'OWNER',
-      referenceId: 'GYM-202', // Powerhouse Gym OwnerSarah
-      amount: 29000, // SaaS renewal ~ $99 LKR equiv
+      referenceId: 'GYM-202',
+      amount: 29000,
       bankName: 'Sampath Bank',
       slipImage: 'powerhouse_renewal_receipt.png',
       status: 'Pending',
@@ -287,15 +350,35 @@ export const initializeDatabase = () => {
     }
   ];
 
+  // 7. Seed Inventory Items LKR
+  const mockInventory: InventoryItem[] = [
+    { id: 'INV-101', gymId: 'GYM-101', name: 'Whey Protein (1kg)', stock: 15, unitCost: 11000, sellingPrice: 14500 },
+    { id: 'INV-102', gymId: 'GYM-101', name: 'Micronized Creatine (250g)', stock: 25, unitCost: 4000, sellingPrice: 6500 },
+    { id: 'INV-103', gymId: 'GYM-101', name: 'Pre-Workout Energizer', stock: 12, unitCost: 7500, sellingPrice: 9500 },
+    { id: 'INV-104', gymId: 'GYM-101', name: 'Mineral Water (1L)', stock: 60, unitCost: 80, sellingPrice: 150 },
+    { id: 'INV-105', gymId: 'GYM-101', name: 'Oatmeal Protein Bar', stock: 45, unitCost: 300, sellingPrice: 480 },
+    
+    // Gym 202
+    { id: 'INV-201', gymId: 'GYM-202', name: 'Whey Protein (1kg)', stock: 8, unitCost: 11000, sellingPrice: 15000 },
+    { id: 'INV-202', gymId: 'GYM-202', name: 'Micronized Creatine (250g)', stock: 15, unitCost: 4000, sellingPrice: 7000 }
+  ];
+
+  const mockSales: Sale[] = [];
+  const mockReengageLogs: ReengagementAttempt[] = [];
+
   setStorageItem('fitpulse_gyms', mockGyms);
   setStorageItem('fitpulse_users', mockUsers);
   setStorageItem('fitpulse_plans', mockPlans);
   setStorageItem('fitpulse_attendance', mockAttendance);
   setStorageItem('fitpulse_slips', mockSlips);
   setStorageItem('fitpulse_sms_logs', mockSmsLogs);
+  setStorageItem('fitpulse_inventory', mockInventory);
+  setStorageItem('fitpulse_sales', mockSales);
+  setStorageItem('fitpulse_reengage', mockReengageLogs);
   
   localStorage.setItem('fitpulse_initialized', 'true');
   localStorage.setItem('fitpulse_initialized_v2', 'true');
+  localStorage.setItem('fitpulse_initialized_v3', 'true');
 };
 
 if (isClient()) {
@@ -327,7 +410,6 @@ export const updateGymSubscription = (gymId: string, status: 'Trial' | 'Active' 
   const gymIndex = gyms.findIndex((g) => g.id === gymId);
   if (gymIndex > -1) {
     gyms[gymIndex].subscriptionStatus = status;
-    // Set trialEndsAt if reactivated
     if (status === 'Active') {
       gyms[gymIndex].trialEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
     }
@@ -506,7 +588,6 @@ export const updatePaymentSlipStatus = (slipId: string, status: 'Approved' | 'Re
     const slip = slips[index];
     setStorageItem('fitpulse_slips', slips);
 
-    // If it is an owner slip and is approved, update their subscription to ACTIVE
     if (slip.tenantType === 'OWNER' && status === 'Approved') {
       updateGymSubscription(slip.referenceId, 'Active');
     }
@@ -532,4 +613,81 @@ export const addSmsLog = (gymId: string, receiverPhone: string, message: string,
   logs.push(newLog);
   setStorageItem('fitpulse_sms_logs', logs);
   return newLog;
+};
+
+// --- Inventory & Catalog APIs ---
+export const getInventory = (gymId: string): InventoryItem[] => {
+  const inventory = getStorageItem<InventoryItem[]>('fitpulse_inventory', []);
+  return inventory.filter((item) => item.gymId === gymId);
+};
+
+export const addInventoryItem = (gymId: string, itemData: Omit<InventoryItem, 'id' | 'gymId'>): InventoryItem => {
+  const inventory = getStorageItem<InventoryItem[]>('fitpulse_inventory', []);
+  const newItem: InventoryItem = {
+    ...itemData,
+    id: `INV-${Math.floor(100 + Math.random() * 900)}`,
+    gymId,
+  };
+  inventory.push(newItem);
+  setStorageItem('fitpulse_inventory', inventory);
+  return newItem;
+};
+
+export const updateStock = (itemId: string, qtyChange: number): void => {
+  const inventory = getStorageItem<InventoryItem[]>('fitpulse_inventory', []);
+  const idx = inventory.findIndex((item) => item.id === itemId);
+  if (idx > -1) {
+    const newStock = Math.max(0, inventory[idx].stock + qtyChange);
+    inventory[idx].stock = newStock;
+    setStorageItem('fitpulse_inventory', inventory);
+  }
+};
+
+// --- Sales & POS Billing APIs ---
+export const getSales = (gymId: string): Sale[] => {
+  const sales = getStorageItem<Sale[]>('fitpulse_sales', []);
+  return sales.filter((s) => s.gymId === gymId);
+};
+
+export const addSale = (saleData: Omit<Sale, 'id' | 'createdAt'>): Sale => {
+  const sales = getStorageItem<Sale[]>('fitpulse_sales', []);
+  const newSale: Sale = {
+    ...saleData,
+    id: `TXN-${Math.floor(1000 + Math.random() * 9000)}`,
+    createdAt: new Date().toISOString(),
+  };
+  sales.push(newSale);
+  setStorageItem('fitpulse_sales', sales);
+
+  // Decrement stock levels for each item purchased
+  newSale.items.forEach((itm) => {
+    updateStock(itm.itemId, -itm.qty);
+  });
+
+  return newSale;
+};
+
+// --- Reengagement Logs APIs ---
+export const getReengagementLogs = (gymId: string): ReengagementAttempt[] => {
+  const logs = getStorageItem<ReengagementAttempt[]>('fitpulse_reengage', []);
+  return logs.filter((l) => l.gymId === gymId);
+};
+
+export const addReengagementLog = (gymId: string, memberId: string, message: string): void => {
+  const logs = getStorageItem<ReengagementAttempt[]>('fitpulse_reengage', []);
+  const users = getUsers();
+  const member = users.find(u => u.id === memberId);
+  const memberName = member ? member.name : 'Unknown Member';
+
+  const newLog: ReengagementAttempt = {
+    id: `RE-${Math.floor(1000 + Math.random() * 9000)}`,
+    gymId,
+    memberId,
+    memberName,
+    message,
+    sentAt: new Date().toISOString(),
+  };
+
+  logs.push(newLog);
+  setStorageItem('fitpulse_reengage', logs);
 };
