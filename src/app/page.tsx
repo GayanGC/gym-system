@@ -63,10 +63,10 @@ export default function LandingPage() {
               </Link>
               
               <Link
-                href="/dashboard"
+                href="/login"
                 className="px-8 py-4 border border-slate-800 hover:border-slate-700 bg-slate-900/40 hover:bg-slate-900 text-slate-200 font-bold text-sm uppercase tracking-wider rounded-xl transition-all duration-300 flex items-center justify-center cursor-pointer"
               >
-                Owner Dashboard
+                Sign In Portal
               </Link>
             </div>
           </div>

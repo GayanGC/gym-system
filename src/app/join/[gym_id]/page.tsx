@@ -123,7 +123,7 @@ export default function JoinPage({ params }: JoinPageProps) {
       if (!gymId) return;
 
       addMember(gymId, {
-        fullName: formData.fullName,
+        name: formData.fullName,
         phone: formData.phone,
         age: parseInt(formData.age) || 25,
         gender: formData.gender,

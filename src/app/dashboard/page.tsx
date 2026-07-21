@@ -18,7 +18,12 @@ import {
   Calendar,
   ChevronRight,
   ShieldCheck,
-  Building2
+  Building2,
+  CreditCard,
+  AlertTriangle,
+  Lock,
+  LogOut,
+  CheckCircle2
 } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
 import { 
@@ -28,13 +33,11 @@ import {
   deleteTrainer, 
   getMembers, 
   getActiveGymId, 
-  Trainer, 
-  Gym,
-  Member 
+  User, 
+  Gym 
 } from '@/lib/db';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 
-// Wrapper component to provide search params inside a Suspense boundary
 export default function DashboardPage() {
   return (
     <Suspense fallback={
@@ -54,17 +57,18 @@ function DashboardContent() {
 
   const [gymId, setGymId] = useState<string | null>(null);
   const [gym, setGym] = useState<Gym | null>(null);
-  const [trainers, setTrainers] = useState<Trainer[]>([]);
-  const [members, setMembers] = useState<Member[]>([]);
+  const [trainers, setTrainers] = useState<User[]>([]);
+  const [members, setMembers] = useState<User[]>([]);
   
   // Navigation / Tabs
-  const [activeTab, setActiveTab] = useState<'overview' | 'trainers' | 'qr'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'trainers' | 'qr' | 'billing'>('overview');
 
   // Form states
   const [trainerForm, setTrainerForm] = useState({
     name: '',
     specialization: '',
     phone: '',
+    email: '',
   });
 
   // Load gym details and dependencies
@@ -75,8 +79,7 @@ function DashboardContent() {
     }
 
     if (!activeId) {
-      // No active gym found, redirect to register page
-      router.push('/register');
+      router.push('/login');
       return;
     }
 
@@ -84,10 +87,10 @@ function DashboardContent() {
     if (!currentGym) {
       toast({
         title: 'Gym Not Found',
-        description: 'The specified Gym ID does not exist. Please register first.',
+        description: 'The specified Gym ID does not exist.',
         type: 'error',
       });
-      router.push('/register');
+      router.push('/login');
       return;
     }
 
@@ -101,14 +104,28 @@ function DashboardContent() {
   useEffect(() => {
     if (!gymId) return;
     const interval = setInterval(() => {
+      const currentGym = getGym(gymId);
+      if (currentGym) {
+        setGym(currentGym);
+      }
       setMembers(getMembers(gymId));
-    }, 3000);
+    }, 2000);
     return () => clearInterval(interval);
   }, [gymId]);
 
   const handleAddTrainer = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!gymId) return;
+    if (!gymId || !gym) return;
+
+    // Check licensing block
+    if (gym.subscriptionStatus === 'Expired') {
+      toast({
+        title: 'Licensing Block',
+        description: 'Your license is expired. Please renew under the Billing section.',
+        type: 'error',
+      });
+      return;
+    }
 
     if (!trainerForm.name || !trainerForm.specialization || !trainerForm.phone) {
       toast({
@@ -123,10 +140,11 @@ function DashboardContent() {
       name: trainerForm.name,
       specialization: trainerForm.specialization,
       phone: trainerForm.phone,
+      email: trainerForm.email || undefined,
     });
 
     setTrainers((prev) => [...prev, newTrainer]);
-    setTrainerForm({ name: '', specialization: '', phone: '' });
+    setTrainerForm({ name: '', specialization: '', phone: '', email: '' });
 
     toast({
       title: 'Trainer Added',
@@ -136,6 +154,15 @@ function DashboardContent() {
   };
 
   const handleDeleteTrainer = (id: string, name: string) => {
+    if (gym?.subscriptionStatus === 'Expired') {
+      toast({
+        title: 'Licensing Block',
+        description: 'Please renew your subscription to perform administrative changes.',
+        type: 'error',
+      });
+      return;
+    }
+
     deleteTrainer(id);
     setTrainers((prev) => prev.filter((t) => t.id !== id));
     toast({
@@ -143,6 +170,11 @@ function DashboardContent() {
       description: `${name} has been removed.`,
       type: 'info',
     });
+  };
+
+  const handleLogout = () => {
+    toast({ title: 'Logged Out', description: 'Session ended.', type: 'info' });
+    router.push('/login');
   };
 
   const handlePrint = () => {
@@ -162,6 +194,8 @@ function DashboardContent() {
     : `https://fitpulse.app/join/${gym.id}`;
 
   const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&color=0f172a&bgcolor=ffffff&data=${encodeURIComponent(joinUrl)}`;
+
+  const isExpired = gym.subscriptionStatus === 'Expired';
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col lg:flex-row relative">
@@ -210,13 +244,22 @@ function DashboardContent() {
         {/* Sidebar */}
         <aside className="w-full lg:w-72 bg-slate-900/40 border-b lg:border-b-0 lg:border-r border-slate-900 p-6 flex flex-col shrink-0">
           {/* Logo */}
-          <div className="flex items-center gap-2.5 mb-10 px-2">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.2)]">
-              <Dumbbell className="h-5 w-5 text-slate-950 stroke-[2.5]" />
+          <div className="flex items-center justify-between lg:justify-start gap-2.5 mb-10 px-2">
+            <div className="flex items-center gap-2.5">
+              <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-400 to-teal-500 flex items-center justify-center shadow-[0_0_20px_rgba(16,185,129,0.2)]">
+                <Dumbbell className="h-5 w-5 text-slate-950 stroke-[2.5]" />
+              </div>
+              <span className="text-xl font-black text-white tracking-tight">
+                FitPulse<span className="text-emerald-400">.AI</span>
+              </span>
             </div>
-            <span className="text-xl font-black text-white tracking-tight">
-              FitPulse<span className="text-emerald-400">.AI</span>
-            </span>
+
+            <button
+              onClick={handleLogout}
+              className="lg:hidden text-slate-400 hover:text-white transition-colors"
+            >
+              <LogOut className="h-5 w-5" />
+            </button>
           </div>
 
           {/* Navigation Links */}
@@ -259,22 +302,72 @@ function DashboardContent() {
               Counter QR Poster
               <ChevronRight className={`ml-auto h-4 w-4 transition-transform ${activeTab === 'qr' ? 'translate-x-0' : 'opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5'}`} />
             </button>
+
+            <button
+              onClick={() => setActiveTab('billing')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group font-semibold text-sm cursor-pointer ${
+                activeTab === 'billing'
+                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/50 border border-transparent'
+              }`}
+            >
+              <CreditCard className="h-4.5 w-4.5" />
+              Billing & Licensing
+              <ChevronRight className={`ml-auto h-4 w-4 transition-transform ${activeTab === 'billing' ? 'translate-x-0' : 'opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5'}`} />
+            </button>
           </nav>
 
           {/* User profile / active state at bottom */}
-          <div className="pt-6 border-t border-slate-900 flex items-center gap-3">
-            <div className="h-9 w-9 rounded-full bg-slate-800 flex items-center justify-center font-bold text-emerald-400 text-sm border border-slate-700">
-              {gym.ownerName.charAt(0).toUpperCase()}
+          <div className="pt-6 border-t border-slate-900 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-full bg-slate-800 flex items-center justify-center font-bold text-emerald-400 text-sm border border-slate-700">
+                {gym.ownerName.charAt(0).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold text-white truncate">{gym.ownerName}</p>
+                <p className="text-[10px] text-slate-500 truncate">Gym Owner</p>
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold text-white truncate">{gym.ownerName}</p>
-              <p className="text-[10px] text-slate-500 truncate">Gym Administrator</p>
-            </div>
+
+            <button
+              onClick={handleLogout}
+              className="hidden lg:block text-slate-500 hover:text-white transition-colors cursor-pointer"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
           </div>
         </aside>
 
         {/* Content Area */}
-        <main className="flex-1 p-6 lg:p-10 flex flex-col overflow-y-auto">
+        <main className="flex-1 p-6 lg:p-10 flex flex-col overflow-y-auto relative">
+          
+          {/* Expired Overlay block (Except billing tab) */}
+          {isExpired && activeTab !== 'billing' && (
+            <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md z-40 flex flex-col justify-center items-center p-6 text-center">
+              <div className="h-16 w-16 bg-rose-500/20 border border-rose-500/40 text-rose-400 rounded-full flex items-center justify-center mb-4">
+                <Lock className="h-8 w-8" />
+              </div>
+              <h2 className="text-2xl font-black text-white tracking-tight">License Expired</h2>
+              <p className="text-slate-400 max-w-sm mt-2 text-sm">
+                Your subscription license for <span className="text-white font-bold">{gym.gymName}</span> has expired. Please update your payment information to regain access.
+              </p>
+              <div className="mt-6 flex gap-4">
+                <button
+                  onClick={() => setActiveTab('billing')}
+                  className="px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-xs uppercase tracking-widest rounded-xl shadow-lg cursor-pointer"
+                >
+                  Manage Subscription
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="px-6 py-3 border border-slate-800 bg-slate-900/40 hover:bg-slate-900 text-slate-300 font-bold text-xs uppercase tracking-widest rounded-xl transition-all cursor-pointer"
+                >
+                  Logout
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Header */}
           <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-10 pb-6 border-b border-slate-900">
             <div>
@@ -291,11 +384,25 @@ function DashboardContent() {
 
             {/* Trial Status Badge */}
             <div className="flex gap-4">
-              <div className="px-4 py-2.5 bg-slate-900/80 border border-emerald-500/20 rounded-xl flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span className="text-xs font-black text-emerald-400 uppercase tracking-widest flex items-center gap-1">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  Active Trial
+              <div className={`px-4 py-2.5 bg-slate-900/80 border rounded-xl flex items-center gap-2 ${
+                gym.subscriptionStatus === 'Active' 
+                  ? 'border-emerald-500/20 text-emerald-400' 
+                  : gym.subscriptionStatus === 'Trial' 
+                  ? 'border-blue-500/20 text-blue-400' 
+                  : 'border-rose-500/20 text-rose-400'
+              }`}>
+                <div className={`h-2 w-2 rounded-full ${
+                  gym.subscriptionStatus === 'Active' 
+                    ? 'bg-emerald-500' 
+                    : gym.subscriptionStatus === 'Trial' 
+                    ? 'bg-blue-500 animate-pulse' 
+                    : 'bg-rose-500'
+                }`} />
+                <span className="text-xs font-black uppercase tracking-widest flex items-center gap-1">
+                  {gym.subscriptionStatus === 'Active' && <CheckCircle2 className="h-3.5 w-3.5" />}
+                  {gym.subscriptionStatus === 'Trial' && <Sparkles className="h-3.5 w-3.5" />}
+                  {gym.subscriptionStatus === 'Expired' && <AlertTriangle className="h-3.5 w-3.5" />}
+                  {gym.subscriptionStatus} License
                 </span>
               </div>
             </div>
@@ -304,99 +411,91 @@ function DashboardContent() {
           {/* TAB 1: OVERVIEW */}
           {activeTab === 'overview' && (
             <div className="space-y-8 animate-in fade-in duration-300">
-              {/* Stats Grid */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <Card className="hover:border-emerald-500/20 transition-all duration-300">
+                <Card>
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-xs font-bold uppercase tracking-wider text-slate-400">Total Registered Members</CardTitle>
+                    <CardTitle className="text-xs font-bold uppercase tracking-wider text-slate-400">Gym Members</CardTitle>
                     <Users className="h-5 w-5 text-emerald-500" />
                   </CardHeader>
                   <CardContent>
                     <div className="text-3xl font-black text-white font-mono">{members.length}</div>
-                    <p className="text-xs text-slate-500 mt-1">Realtime onboarding updates</p>
+                    <p className="text-xs text-slate-500 mt-1">Total registered users</p>
                   </CardContent>
                 </Card>
 
-                <Card className="hover:border-emerald-500/20 transition-all duration-300">
+                <Card>
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-xs font-bold uppercase tracking-wider text-slate-400">Assigned Trainers</CardTitle>
+                    <CardTitle className="text-xs font-bold uppercase tracking-wider text-slate-400">Coaches Assigned</CardTitle>
                     <UserCheck className="h-5 w-5 text-emerald-500" />
                   </CardHeader>
                   <CardContent>
                     <div className="text-3xl font-black text-white font-mono">{trainers.length}</div>
-                    <p className="text-xs text-slate-500 mt-1">Personal & specialized coaches</p>
+                    <p className="text-xs text-slate-500 mt-1">Staff roster directories</p>
                   </CardContent>
                 </Card>
 
-                <Card className="hover:border-emerald-500/20 transition-all duration-300">
+                <Card>
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
-                    <CardTitle className="text-xs font-bold uppercase tracking-wider text-slate-400">Active Membership Plans</CardTitle>
+                    <CardTitle className="text-xs font-bold uppercase tracking-wider text-slate-400">Daily Attendance Avg</CardTitle>
                     <Calendar className="h-5 w-5 text-emerald-500" />
                   </CardHeader>
                   <CardContent>
-                    <div className="text-3xl font-black text-white font-mono">1</div>
-                    <p className="text-xs text-slate-500 mt-1">Trial membership package</p>
+                    <div className="text-3xl font-black text-white font-mono">
+                      {members.length > 0 ? (members.reduce((acc, m) => acc + (m.streak || 0), 0) / members.length).toFixed(1) : 0}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1">Average logged member streak</p>
                   </CardContent>
                 </Card>
               </div>
 
-              {/* Gym Info Details */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-lg">Gym Registration Details</CardTitle>
-                    <CardDescription>Official account settings and registry details.</CardDescription>
+                    <CardTitle className="text-lg">Gym Settings & Info</CardTitle>
+                    <CardDescription>System parameters for your multi-tenant subscription.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div className="flex justify-between items-center py-2 border-b border-slate-900">
-                      <span className="text-slate-400 text-sm">Gym Identification (ID)</span>
-                      <span className="font-mono text-sm text-white font-bold">{gym.id}</span>
-                    </div>
                     <div className="flex justify-between items-center py-2 border-b border-slate-900">
                       <span className="text-slate-400 text-sm">Owner Name</span>
                       <span className="text-sm text-white font-semibold">{gym.ownerName}</span>
                     </div>
                     <div className="flex justify-between items-center py-2 border-b border-slate-900">
-                      <span className="text-slate-400 text-sm">Primary Location</span>
-                      <span className="text-sm text-white font-semibold">{gym.location}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2 border-b border-slate-900">
-                      <span className="text-slate-400 text-sm flex items-center gap-1"><Mail className="h-3.5 w-3.5" /> Email</span>
+                      <span className="text-slate-400 text-sm">Tenant Email</span>
                       <span className="text-sm text-slate-300">{gym.email}</span>
                     </div>
-                    <div className="flex justify-between items-center py-2">
-                      <span className="text-slate-400 text-sm flex items-center gap-1"><Phone className="h-3.5 w-3.5" /> Phone</span>
+                    <div className="flex justify-between items-center py-2 border-b border-slate-900">
+                      <span className="text-slate-400 text-sm">Phone Contact</span>
                       <span className="text-sm text-slate-300">{gym.phone}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-2">
+                      <span className="text-slate-400 text-sm">Location Area</span>
+                      <span className="text-sm text-white font-semibold">{gym.location}</span>
                     </div>
                   </CardContent>
                 </Card>
 
-                {/* Recent Registrations */}
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-lg">Recent Onboarded Members</CardTitle>
-                    <CardDescription>Updates from your reception counter QR poster.</CardDescription>
+                    <CardTitle className="text-lg">Onboarded Members</CardTitle>
+                    <CardDescription>Recently registered member check-ins.</CardDescription>
                   </CardHeader>
                   <CardContent>
                     {members.length === 0 ? (
-                      <div className="h-48 flex flex-col justify-center items-center text-center p-6 border border-dashed border-slate-800 rounded-2xl bg-slate-950/20">
-                        <QrCode className="h-10 w-10 text-slate-600 mb-3 animate-pulse" />
-                        <p className="text-sm text-slate-400 font-semibold">No members onboarded yet</p>
-                        <p className="text-xs text-slate-500 mt-1 max-w-[200px]">
-                          Place the Counter QR Poster at your reception desk to start onboarding!
-                        </p>
+                      <div className="h-44 flex flex-col justify-center items-center text-center p-6 border border-dashed border-slate-800 rounded-2xl">
+                        <QrCode className="h-10 w-10 text-slate-600 mb-2" />
+                        <p className="text-xs text-slate-500">No members onboarded yet.</p>
                       </div>
                     ) : (
-                      <div className="space-y-4 max-h-[260px] overflow-y-auto pr-2">
+                      <div className="space-y-3 max-h-[220px] overflow-y-auto">
                         {members.map((member) => (
                           <div key={member.id} className="flex justify-between items-center p-3 rounded-xl bg-slate-950/40 border border-slate-900">
                             <div>
-                              <p className="text-sm font-bold text-white">{member.fullName}</p>
-                              <p className="text-[10px] text-emerald-400 font-semibold uppercase tracking-wider">{member.goal.replace('-', ' ')}</p>
+                              <p className="text-xs font-bold text-white">{member.name}</p>
+                              <p className="text-[9px] text-emerald-400 font-semibold uppercase tracking-wider">{member.goal?.replace('-', ' ')}</p>
                             </div>
                             <div className="text-right">
                               <p className="text-xs text-slate-400 font-mono">{member.phone}</p>
-                              <p className="text-[10px] text-slate-500">{new Date(member.createdAt).toLocaleTimeString()}</p>
+                              <p className="text-[9px] text-slate-500">Streak: {member.streak || 0} days</p>
                             </div>
                           </div>
                         ))}
@@ -412,11 +511,11 @@ function DashboardContent() {
           {activeTab === 'trainers' && (
             <div className="space-y-8 animate-in fade-in duration-300">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Add Trainer Form */}
+                {/* Form */}
                 <Card className="lg:col-span-1 h-fit">
                   <CardHeader>
-                    <CardTitle className="text-lg">Add New Trainer</CardTitle>
-                    <CardDescription>Assign a coach or personal trainer to your fitness center.</CardDescription>
+                    <CardTitle className="text-lg">Register Trainer</CardTitle>
+                    <CardDescription>Assign coaches for workout allocations.</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <form onSubmit={handleAddTrainer} className="space-y-4">
@@ -425,7 +524,7 @@ function DashboardContent() {
                         <input
                           type="text"
                           required
-                          placeholder="e.g. Michael Jordan"
+                          placeholder="e.g. Mike Coach"
                           value={trainerForm.name}
                           onChange={(e) => setTrainerForm(prev => ({ ...prev, name: e.target.value }))}
                           className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-emerald-500"
@@ -437,7 +536,7 @@ function DashboardContent() {
                         <input
                           type="text"
                           required
-                          placeholder="e.g. Bodybuilding, Yoga, Cardio"
+                          placeholder="e.g. Bodybuilding, Strength"
                           value={trainerForm.specialization}
                           onChange={(e) => setTrainerForm(prev => ({ ...prev, specialization: e.target.value }))}
                           className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-emerald-500"
@@ -449,7 +548,7 @@ function DashboardContent() {
                         <input
                           type="tel"
                           required
-                          placeholder="e.g. +94 77 987 6543"
+                          placeholder="e.g. +94 77 111 2222"
                           value={trainerForm.phone}
                           onChange={(e) => setTrainerForm(prev => ({ ...prev, phone: e.target.value }))}
                           className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-emerald-500"
@@ -458,28 +557,25 @@ function DashboardContent() {
 
                       <button
                         type="submit"
-                        className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-widest py-3 rounded-xl shadow-lg transition-all duration-300 flex items-center justify-center gap-1.5 cursor-pointer"
+                        className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-widest py-3 rounded-xl shadow-lg transition-all cursor-pointer flex items-center justify-center gap-1.5"
                       >
-                        <Plus className="h-4.5 w-4.5" /> Add Trainer
+                        <Plus className="h-4 w-4" /> Add Trainer
                       </button>
                     </form>
                   </CardContent>
                 </Card>
 
-                {/* Trainers List */}
+                {/* List */}
                 <Card className="lg:col-span-2">
                   <CardHeader>
-                    <CardTitle className="text-lg font-bold">Assigned Trainers</CardTitle>
-                    <CardDescription>Verify and manage registered personal trainers.</CardDescription>
+                    <CardTitle className="text-lg">Staff Roster</CardTitle>
+                    <CardDescription>Verify your active gym coaches.</CardDescription>
                   </CardHeader>
                   <CardContent>
                     {trainers.length === 0 ? (
                       <div className="h-64 flex flex-col justify-center items-center text-center p-6 border border-dashed border-slate-800 rounded-2xl bg-slate-950/20">
                         <UserCheck className="h-10 w-10 text-slate-600 mb-3" />
                         <p className="text-sm text-slate-400 font-semibold">No trainers assigned yet</p>
-                        <p className="text-xs text-slate-500 mt-1 max-w-[240px]">
-                          Fill in the registration form to list your first fitness coach.
-                        </p>
                       </div>
                     ) : (
                       <div className="overflow-x-auto">
@@ -495,11 +591,11 @@ function DashboardContent() {
                           </thead>
                           <tbody className="divide-y divide-slate-900/60">
                             {trainers.map((t) => (
-                              <tr key={t.id} className="hover:bg-slate-900/20 transition-colors">
+                              <tr key={t.id} className="hover:bg-slate-900/10 transition-colors">
                                 <td className="py-3 px-4 font-mono text-emerald-400 text-xs">{t.id}</td>
                                 <td className="py-3 px-4 text-white font-semibold">{t.name}</td>
                                 <td className="py-3 px-4 text-slate-300">
-                                  <span className="px-2.5 py-1 bg-slate-900 rounded-full text-xs border border-slate-800 text-slate-300">
+                                  <span className="px-2.5 py-1 bg-slate-900 rounded-full text-[10px] border border-slate-800 text-slate-300 font-semibold uppercase tracking-wider">
                                     {t.specialization}
                                   </span>
                                 </td>
@@ -526,48 +622,42 @@ function DashboardContent() {
 
           {/* TAB 3: QR POSTER */}
           {activeTab === 'qr' && (
-            <div className="space-y-8 animate-in fade-in duration-300 max-w-2xl mx-auto w-full">
-              <Card className="overflow-hidden border-slate-800 relative bg-slate-900/40" glow>
+            <div className="space-y-8 animate-in fade-in duration-300 max-w-xl mx-auto w-full">
+              <Card className="overflow-hidden border-slate-800 bg-slate-900/40" glow>
                 <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-emerald-500 to-teal-500" />
                 
                 <CardHeader>
                   <CardTitle className="text-xl flex items-center gap-2">
-                    <QrCode className="h-5 w-5 text-emerald-400" /> Reception Desk QR Poster
+                    <QrCode className="h-5 w-5 text-emerald-400" /> Counter QR Code Poster
                   </CardTitle>
                   <CardDescription>
-                    Stylized counter poster. Print and place this poster at your gym front counter. When new members scan this QR code, they can instantly self-onboard using their smartphone.
+                    Print this QR poster to display at your reception desk. New members scan this code to register self-onboarding details via their phone.
                   </CardDescription>
                 </CardHeader>
                 
-                <CardContent className="flex flex-col items-center py-8">
-                  {/* Poster Preview Frame */}
+                <CardContent className="flex flex-col items-center py-6">
+                  {/* Poster Preview */}
                   <div className="border border-slate-800 bg-white rounded-3xl p-8 w-full max-w-sm text-center text-slate-900 shadow-2xl flex flex-col items-center">
-                    
-                    {/* Header */}
-                    <div className="flex flex-col items-center gap-2 mb-6">
+                    <div className="flex flex-col items-center gap-2 mb-4">
                       <div className="h-10 w-10 rounded-xl bg-slate-900 flex items-center justify-center">
                         <Dumbbell className="h-5 w-5 text-emerald-400 stroke-[2.5]" />
                       </div>
-                      <h4 className="text-xl font-black text-slate-900">
+                      <h4 className="text-lg font-black text-slate-900">
                         FitPulse<span className="text-emerald-500">.AI</span>
                       </h4>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Self-Registration</p>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Self-Onboarding</p>
                     </div>
 
-                    <h3 className="text-3xl font-extrabold tracking-tight text-slate-900">Scan to Register</h3>
-                    <p className="text-xs text-slate-500 mt-2 max-w-[220px] mx-auto">
-                      Fill out your profile, body stats, and goals from your phone.
-                    </p>
-
-                    {/* QR Code Container */}
-                    <div className="my-6 p-4 bg-slate-100 rounded-[2rem] border border-slate-200 shadow-inner flex items-center justify-center">
+                    <h3 className="text-2xl font-extrabold tracking-tight text-slate-900">Scan to Register</h3>
+                    
+                    <div className="my-5 p-4 bg-slate-100 rounded-[2rem] border border-slate-200 shadow-inner flex items-center justify-center">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={qrImageUrl} alt="Gym Onboarding QR Code" className="w-48 h-48 border border-white rounded-xl" />
                     </div>
 
                     <div className="border-t border-slate-100 pt-4 w-full">
-                      <p className="text-sm font-bold text-slate-800">{gym.gymName}</p>
-                      <p className="text-[10px] text-slate-400 mt-0.5 flex items-center justify-center gap-1">
+                      <p className="text-xs font-bold text-slate-800">{gym.gymName}</p>
+                      <p className="text-[9px] text-slate-500 mt-0.5 flex items-center justify-center gap-1">
                         <MapPin className="h-3 w-3 text-emerald-500 shrink-0" /> {gym.location}
                       </p>
                     </div>
@@ -576,7 +666,7 @@ function DashboardContent() {
                   <div className="mt-8 flex flex-col sm:flex-row gap-4 w-full justify-center">
                     <button
                       onClick={handlePrint}
-                      className="px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs uppercase tracking-widest rounded-xl shadow-lg transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer"
+                      className="px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs uppercase tracking-widest rounded-xl shadow-lg transition-all cursor-pointer flex items-center justify-center gap-2"
                     >
                       <Printer className="h-4.5 w-4.5" /> Print QR Poster
                     </button>
@@ -585,20 +675,90 @@ function DashboardContent() {
                       href={joinUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-6 py-3 border border-slate-850 hover:border-slate-700 bg-slate-900/50 hover:bg-slate-900 text-slate-200 font-bold text-xs uppercase tracking-widest rounded-xl transition-all duration-300 flex items-center justify-center gap-2"
+                      className="px-6 py-3 border border-slate-850 hover:border-slate-700 bg-slate-900/50 hover:bg-slate-900 text-slate-200 font-bold text-xs uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2"
                     >
                       Test Onboarding Link
                     </a>
-                  </div>
-
-                  <div className="mt-6 flex items-center gap-2 text-slate-500 text-xs">
-                    <ShieldCheck className="h-4 w-4 text-emerald-500" />
-                    <span>Poster scales perfectly to standard printable A4 or Letter sizes.</span>
                   </div>
                 </CardContent>
               </Card>
             </div>
           )}
+
+          {/* TAB 4: BILLING & LICENSING */}
+          {activeTab === 'billing' && (
+            <div className="space-y-8 animate-in fade-in duration-300 max-w-2xl mx-auto w-full">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Subscription Details</CardTitle>
+                  <CardDescription>Manage SaaS license, billing cycles, and packages.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {/* Status Banner */}
+                  <div className={`p-4 rounded-xl border flex items-start gap-3 ${
+                    gym.subscriptionStatus === 'Active' 
+                      ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
+                      : gym.subscriptionStatus === 'Trial' 
+                      ? 'bg-blue-500/10 border-blue-500/20 text-blue-400' 
+                      : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                  }`}>
+                    {gym.subscriptionStatus === 'Active' && <CheckCircle2 className="h-5 w-5 shrink-0 mt-0.5" />}
+                    {gym.subscriptionStatus === 'Trial' && <Sparkles className="h-5 w-5 shrink-0 mt-0.5" />}
+                    {gym.subscriptionStatus === 'Expired' && <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />}
+
+                    <div>
+                      <h4 className="text-sm font-bold text-white uppercase tracking-wider">
+                        {gym.subscriptionStatus} Subscription Status
+                      </h4>
+                      <p className="text-xs text-slate-400 mt-1">
+                        {gym.subscriptionStatus === 'Active' && 'Your license is fully active with unlimited member access.'}
+                        {gym.subscriptionStatus === 'Trial' && 'You are currently on a 1-Month free trial. Upgrade any time.'}
+                        {gym.subscriptionStatus === 'Expired' && 'Your subscription has expired. System actions are restricted.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Plan Information */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-4 bg-slate-950 border border-slate-900 rounded-xl">
+                      <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Pricing Plan</span>
+                      <p className="text-base font-bold text-white mt-1">Growth Tier</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">$99.00 / month flat rate</p>
+                    </div>
+                    
+                    <div className="p-4 bg-slate-950 border border-slate-900 rounded-xl">
+                      <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Billing Renewal</span>
+                      <p className="text-base font-bold text-white mt-1">Monthly</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Expires: {new Date(gym.trialEndsAt).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+
+                  {/* Renew Form Mock action */}
+                  <div className="border-t border-slate-900 pt-6">
+                    <h4 className="text-sm font-bold text-white mb-4">Upgrade / Renew License</h4>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        toast({
+                          title: 'SaaS Simulation Triggered',
+                          description: 'Contact Super Admin at admin@fitpulse.ai to alter subscription status.',
+                          type: 'info',
+                        });
+                      }}
+                      className="px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-xs uppercase tracking-widest rounded-xl shadow-lg cursor-pointer"
+                    >
+                      Process Payment Renewal
+                    </button>
+                    <p className="text-[10px] text-slate-500 mt-2">
+                      Secured by FitPulse Payment Processor. Simulated for multi-tenant evaluation.
+                    </p>
+                  </div>
+
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
         </main>
       </div>
     </div>
