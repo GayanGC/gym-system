@@ -20,7 +20,12 @@ import {
   Activity,
   CalendarDays,
   Utensils,
-  LogOut
+  LogOut,
+  CreditCard,
+  Building2,
+  FileCheck,
+  Upload,
+  Globe
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useToast } from '@/components/ui/toast';
@@ -30,11 +35,16 @@ import {
   getMemberWorkoutPlan, 
   getMemberAttendance, 
   logAttendance,
+  getPaymentSlips,
+  addPaymentSlip,
   Gym,
   User,
   WorkoutPlan,
-  Attendance
+  Attendance,
+  PaymentSlip
 } from '@/lib/db';
+import { sendLocalSms } from '@/lib/sms';
+import { getTranslation, Language } from '@/lib/i18n';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 
 export default function MemberPage() {
@@ -62,21 +72,23 @@ function MemberContent() {
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   
   // Navigation / Tabs (Mobile bottom bar simulation)
-  const [activeTab, setActiveTab] = useState<'home' | 'workout' | 'diet'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'workout' | 'diet' | 'payment'>('home');
   const [checkingIn, setCheckingIn] = useState(false);
 
+  // Localization
+  const [lang, setLang] = useState<Language>('en');
+
+  // Payments state
+  const [paymentMethod, setPaymentMethod] = useState<'payhere' | 'bank'>('payhere');
+  const [selectedBank, setSelectedBank] = useState('Commercial Bank');
+  const [slipFileName, setSlipFileName] = useState('');
+  const [memberSlips, setMemberSlips] = useState<PaymentSlip[]>([]);
+  const [processingPayHere, setProcessingPayHere] = useState(false);
+
   // Load details
-  useEffect(() => {
-    const activeGymId = searchParams.get('gym_id');
-    const activeMemberId = searchParams.get('member_id');
-
-    if (!activeGymId || !activeMemberId) {
-      router.push('/login');
-      return;
-    }
-
-    const currentGym = getGym(activeGymId);
-    const currentMember = getMember(activeGymId, activeMemberId);
+  const loadMemberData = (gId: string, mId: string) => {
+    const currentGym = getGym(gId);
+    const currentMember = getMember(gId, mId);
 
     if (!currentGym || !currentMember) {
       toast({
@@ -88,21 +100,40 @@ function MemberContent() {
       return;
     }
 
-    setGymId(activeGymId);
-    setMemberId(activeMemberId);
     setGym(currentGym);
     setMember(currentMember);
-    setWorkoutPlan(getMemberWorkoutPlan(activeGymId, activeMemberId));
-    setAttendance(getMemberAttendance(activeGymId, activeMemberId));
+    setWorkoutPlan(getMemberWorkoutPlan(gId, mId));
+    setAttendance(getMemberAttendance(gId, mId));
+    setMemberSlips(getPaymentSlips('MEMBER', mId));
+  };
+
+  useEffect(() => {
+    const activeGymId = searchParams.get('gym_id');
+    const activeMemberId = searchParams.get('member_id');
+
+    if (!activeGymId || !activeMemberId) {
+      router.push('/login');
+      return;
+    }
+
+    setGymId(activeGymId);
+    setMemberId(activeMemberId);
+    loadMemberData(activeGymId, activeMemberId);
   }, [searchParams, router, toast]);
 
   const handleCheckIn = () => {
-    if (!gymId || !memberId) return;
+    if (!gymId || !memberId || !gym || !member) return;
 
     setCheckingIn(true);
     setTimeout(() => {
       const newLog = logAttendance(gymId, memberId);
       
+      // Trigger SMS alerts
+      const checkinTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const smsMessage = `Welcome to ${gym.gymName}! Your workout session started at ${checkinTime}. Work hard! 🔥`;
+      
+      sendLocalSms(gymId, member.phone || '', smsMessage, 'Check-in');
+
       // Update local states
       setAttendance((prev) => [...prev, newLog]);
       const updatedMember = getMember(gymId, memberId);
@@ -113,8 +144,8 @@ function MemberContent() {
       setCheckingIn(false);
 
       toast({
-        title: 'Check-in Logged!',
-        description: 'Your counter attendance check has been registered successfully.',
+        title: getTranslation(lang, 'checkinLogged'),
+        description: 'Daily check-in completed. SMS alert generated.',
         type: 'success',
       });
 
@@ -127,9 +158,91 @@ function MemberContent() {
     }, 1000);
   };
 
+  // PayHere instant checkout simulator
+  const handlePayHereCheckout = () => {
+    if (!gymId || !memberId) return;
+
+    setProcessingPayHere(true);
+    setTimeout(() => {
+      // Create approved slip automatically for instant checkout
+      const mockSlip = addPaymentSlip({
+        tenantType: 'MEMBER',
+        referenceId: memberId,
+        amount: 4500,
+        bankName: 'PayHere Gateway',
+        slipImage: 'Instant PayHere Checkout Token',
+      });
+
+      // Approve immediately
+      mockSlip.status = 'Approved';
+      // Save updated back to storage slips list manually or update slip status helper
+      const slipsList = localStorage.getItem('fitpulse_slips');
+      if (slipsList) {
+        const parsed = JSON.parse(slipsList) as PaymentSlip[];
+        // find index and approve
+        const idx = parsed.findIndex(s => s.referenceId === memberId && s.bankName === 'PayHere Gateway');
+        if (idx > -1) {
+          parsed[idx].status = 'Approved';
+          localStorage.setItem('fitpulse_slips', JSON.stringify(parsed));
+        }
+      }
+
+      setProcessingPayHere(false);
+      loadMemberData(gymId, memberId);
+
+      toast({
+        title: 'PayHere Payment Completed!',
+        description: 'Growth membership fee LKR 4,500.00 processed successfully.',
+        type: 'success',
+      });
+
+      confetti({
+        particleCount: 100,
+        spread: 70,
+        origin: { y: 0.6 }
+      });
+    }, 1500);
+  };
+
+  // Slip receipt upload
+  const handleSlipSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!gymId || !memberId) return;
+
+    if (!slipFileName) {
+      toast({
+        title: 'File Name Required',
+        description: 'Please input the receipt image name.',
+        type: 'error',
+      });
+      return;
+    }
+
+    addPaymentSlip({
+      tenantType: 'MEMBER',
+      referenceId: memberId,
+      amount: 4500,
+      bankName: selectedBank,
+      slipImage: slipFileName,
+    });
+
+    setSlipFileName('');
+    loadMemberData(gymId, memberId);
+
+    toast({
+      title: getTranslation(lang, 'uploadSuccess'),
+      description: 'Your trainer will review and verify your receipt slip.',
+      type: 'success',
+    });
+  };
+
   const handleLogout = () => {
     toast({ title: 'Logged Out', description: 'Session ended.', type: 'info' });
     router.push('/login');
+  };
+
+  const toggleLanguage = () => {
+    setLang((prev) => (prev === 'en' ? 'si' : 'en'));
   };
 
   if (!gym || !member) {
@@ -140,7 +253,7 @@ function MemberContent() {
     );
   }
 
-  // Pre-configured mock diet plans based on member goals
+  // Diet options based on goal
   const mockDiets: Record<string, string[]> = {
     'weight-loss': [
       'Meal 1: Oats with Almond milk, protein powder and blueberries.',
@@ -171,12 +284,18 @@ function MemberContent() {
   const activeGoal = member.goal || 'general-health';
   const dietPlanList = mockDiets[activeGoal] || mockDiets['general-health'];
 
+  // Sri Lankan banks details
+  const localBanks = [
+    { bank: 'Commercial Bank', acc: '1002003004', branch: 'Colombo 07' },
+    { bank: 'Sampath Bank', acc: '9008007006', branch: 'Kandy Main' }
+  ];
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center relative overflow-x-hidden pb-24">
-      {/* Background neon blur */}
+      {/* Background blur */}
       <div className="absolute top-0 w-full h-[300px] bg-emerald-500/5 rounded-full blur-[80px] pointer-events-none" />
 
-      {/* Simulated Mobile Device Wrapper (centering style) */}
+      {/* Mobile view wrap */}
       <div className="w-full max-w-md flex flex-col flex-1 px-4 pt-6">
         
         {/* Header */}
@@ -186,29 +305,43 @@ function MemberContent() {
               <Dumbbell className="h-5 w-5 text-slate-950 stroke-[2.5]" />
             </div>
             <div>
-              <h1 className="text-base font-black text-white leading-tight">FitPulse App</h1>
+              <h1 className="text-base font-black text-white leading-tight">
+                {getTranslation(lang, 'appName')}
+              </h1>
               <p className="text-[10px] text-slate-500 flex items-center gap-1 font-semibold uppercase tracking-wider">
                 <MapPin className="h-3 w-3 text-emerald-400 shrink-0" /> {gym.gymName}
               </p>
             </div>
           </div>
 
-          <button
-            onClick={handleLogout}
-            className="p-2 bg-slate-900 border border-slate-805 hover:bg-slate-850 text-slate-400 hover:text-white rounded-xl transition-colors cursor-pointer"
-          >
-            <LogOut className="h-4.5 w-4.5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {/* EN | සිං language switcher button */}
+            <button
+              onClick={toggleLanguage}
+              className="px-2.5 py-1.5 bg-slate-900 border border-slate-800 hover:border-slate-750 text-slate-300 hover:text-emerald-400 font-black text-[10px] rounded-xl transition-all flex items-center gap-1 cursor-pointer"
+            >
+              <Globe className="h-3.5 w-3.5" />
+              <span>{lang === 'en' ? 'සිං' : 'EN'}</span>
+            </button>
+
+            <button
+              onClick={handleLogout}
+              className="p-1.5 bg-slate-900 border border-slate-800 hover:bg-slate-850 text-slate-400 hover:text-white rounded-xl transition-colors cursor-pointer"
+            >
+              <LogOut className="h-4.5 w-4.5" />
+            </button>
+          </div>
         </header>
 
-        {/* TAB 1: HOME PANEL */}
+        {/* TAB 1: HOME */}
         {activeTab === 'home' && (
           <div className="space-y-6 animate-in fade-in duration-300 z-10">
-            
-            {/* User welcome & streak stats */}
+            {/* Welcome */}
             <div className="flex justify-between items-center bg-slate-900/40 border border-slate-900 rounded-2xl p-5 backdrop-blur-xl">
               <div>
-                <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Logged Member</p>
+                <p className="text-[10px] text-slate-500 uppercase tracking-widest font-black">
+                  {getTranslation(lang, 'welcome')}
+                </p>
                 <h3 className="text-xl font-black text-white mt-0.5">{member.name}</h3>
                 <p className="text-xs text-emerald-400 font-mono mt-1 uppercase tracking-wider">{gym.id}</p>
               </div>
@@ -217,20 +350,24 @@ function MemberContent() {
               <div className="flex flex-col items-center p-2.5 bg-slate-950 border border-slate-850 rounded-2xl shadow-inner shrink-0">
                 <Flame className="h-6 w-6 text-orange-500 animate-pulse" />
                 <span className="text-base font-black text-white font-mono mt-0.5">{member.streak || 0}</span>
-                <span className="text-[8px] text-slate-500 uppercase font-black tracking-wider">Streak</span>
+                <span className="text-[8px] text-slate-500 uppercase font-black tracking-wider">
+                  {getTranslation(lang, 'streak')}
+                </span>
               </div>
             </div>
 
-            {/* Check-in Trigger Counter */}
+            {/* Check-in Trigger */}
             <Card className="border-emerald-500/20 shadow-[0_0_20px_rgba(16,185,129,0.05)] bg-slate-900/20" glow>
               <CardContent className="pt-6 text-center space-y-4">
                 <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                   <Award className="h-6 w-6" />
                 </div>
                 <div>
-                  <h4 className="text-sm font-bold text-white">Log Today's Workout Streak</h4>
+                  <h4 className="text-sm font-bold text-white">
+                    {getTranslation(lang, 'logCheckin')}
+                  </h4>
                   <p className="text-xs text-slate-400 mt-1 max-w-[260px] mx-auto">
-                    Simulate scanning the QR counter poster at the reception desk to register check-in.
+                    {getTranslation(lang, 'dailyCheckinDesc')}
                   </p>
                 </div>
                 
@@ -243,7 +380,7 @@ function MemberContent() {
                     <div className="h-4 w-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
                   ) : (
                     <>
-                      Register Daily Check-in <Sparkles className="h-4 w-4" />
+                      {getTranslation(lang, 'logCheckin')} <Sparkles className="h-4 w-4" />
                     </>
                   )}
                 </button>
@@ -253,34 +390,43 @@ function MemberContent() {
             {/* Body Metrics Card */}
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-bold">Personal Body Stats</CardTitle>
-                <CardDescription className="text-xs">Your registered scale logs.</CardDescription>
+                <CardTitle className="text-sm font-bold">
+                  {getTranslation(lang, 'personalStats')}
+                </CardTitle>
               </CardHeader>
               <CardContent className="grid grid-cols-3 gap-3 text-center">
                 <div className="p-3 bg-slate-950/60 border border-slate-900 rounded-xl flex flex-col items-center">
                   <Ruler className="h-4 w-4 text-emerald-500 mb-1" />
-                  <span className="text-[9px] text-slate-500 uppercase font-semibold">Height</span>
+                  <span className="text-[9px] text-slate-500 uppercase font-semibold">
+                    {getTranslation(lang, 'height')}
+                  </span>
                   <span className="text-xs font-bold text-white mt-0.5 font-mono">{member.height || 175} cm</span>
                 </div>
 
                 <div className="p-3 bg-slate-950/60 border border-slate-900 rounded-xl flex flex-col items-center">
                   <Scale className="h-4 w-4 text-emerald-500 mb-1" />
-                  <span className="text-[9px] text-slate-500 uppercase font-semibold">Weight</span>
+                  <span className="text-[9px] text-slate-500 uppercase font-semibold">
+                    {getTranslation(lang, 'weight')}
+                  </span>
                   <span className="text-xs font-bold text-white mt-0.5 font-mono">{member.weight || 75} kg</span>
                 </div>
 
                 <div className="p-3 bg-slate-950/60 border border-slate-900 rounded-xl flex flex-col items-center">
                   <Target className="h-4 w-4 text-emerald-500 mb-1" />
-                  <span className="text-[9px] text-slate-500 uppercase font-semibold">Target</span>
+                  <span className="text-[9px] text-slate-500 uppercase font-semibold">
+                    {getTranslation(lang, 'targetWeight')}
+                  </span>
                   <span className="text-xs font-bold text-white mt-0.5 font-mono">{member.targetWeight || 70} kg</span>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Quick Goals Info Card */}
+            {/* Primary Target Goal */}
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-3">
-                <CardTitle className="text-sm font-bold">Primary Target Goal</CardTitle>
+                <CardTitle className="text-sm font-bold">
+                  {getTranslation(lang, 'primaryGoal')}
+                </CardTitle>
                 <div className="p-1.5 bg-slate-950 border border-slate-850 rounded-lg text-emerald-400">
                   {activeGoal === 'weight-loss' && <TrendingDown className="h-4 w-4" />}
                   {activeGoal === 'muscle-building' && <Flame className="h-4 w-4" />}
@@ -291,7 +437,10 @@ function MemberContent() {
               <CardContent className="text-xs text-slate-400 leading-relaxed flex items-center justify-between bg-slate-950/40 p-4 rounded-xl border border-slate-900">
                 <div>
                   <p className="font-bold text-white uppercase tracking-wider text-[10px]">
-                    {activeGoal.replace('-', ' ')}
+                    {lang === 'en' 
+                      ? getTranslation(lang, activeGoal === 'weight-loss' ? 'weightLoss' : activeGoal === 'muscle-building' ? 'muscleBuilding' : activeGoal === 'athletic-fitness' ? 'athleticFitness' : 'generalHealth')
+                      : getTranslation(lang, activeGoal === 'weight-loss' ? 'weightLoss' : activeGoal === 'muscle-building' ? 'muscleBuilding' : activeGoal === 'athletic-fitness' ? 'athleticFitness' : 'generalHealth')
+                    }
                   </p>
                   <p className="text-[10px] text-slate-500 mt-0.5">
                     Your trainer is tailoring workouts to match this objective.
@@ -307,22 +456,22 @@ function MemberContent() {
         {activeTab === 'workout' && (
           <div className="space-y-6 animate-in fade-in duration-300 z-10">
             <h2 className="text-base font-black text-white flex items-center gap-1.5 px-1">
-              <ClipboardList className="h-4.5 w-4.5 text-emerald-400" /> Assigned Routine
+              <ClipboardList className="h-4.5 w-4.5 text-emerald-400" /> {getTranslation(lang, 'todaysWorkout')}
             </h2>
 
             {!workoutPlan ? (
               <div className="p-8 border border-dashed border-slate-850 rounded-3xl text-center bg-slate-900/10">
                 <Dumbbell className="h-10 w-10 text-slate-700 mb-3 mx-auto animate-pulse" />
-                <h3 className="text-sm font-bold text-slate-400">No Workout Assigned</h3>
+                <h3 className="text-sm font-bold text-slate-400">{getTranslation(lang, 'noWorkout')}</h3>
                 <p className="text-xs text-slate-505 mt-1 max-w-[200px] mx-auto">
-                  Your assigned personal coach hasn't constructed a workout routine for your goals yet.
+                  {getTranslation(lang, 'noWorkoutDesc')}
                 </p>
               </div>
             ) : (
               <div className="space-y-4">
                 <Card glow>
                   <CardHeader className="pb-3 border-b border-slate-950">
-                    <CardTitle className="text-sm">Today's Exercises</CardTitle>
+                    <CardTitle className="text-sm">{getTranslation(lang, 'todaysWorkout')}</CardTitle>
                     <CardDescription className="text-xs">Assigned by coach on {new Date(workoutPlan.createdAt).toLocaleDateString()}</CardDescription>
                   </CardHeader>
                   <CardContent className="pt-4 divide-y divide-slate-950">
@@ -350,13 +499,12 @@ function MemberContent() {
                 <Card>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm flex items-center gap-1.5">
-                      <CalendarDays className="h-4.5 w-4.5 text-emerald-400" /> Attendance Ledger
+                      <CalendarDays className="h-4.5 w-4.5 text-emerald-400" /> {getTranslation(lang, 'attLedger')}
                     </CardTitle>
-                    <CardDescription className="text-xs">Your counter log history.</CardDescription>
                   </CardHeader>
                   <CardContent>
                     {attendance.length === 0 ? (
-                      <p className="text-xs text-slate-500 text-center py-4">No attendance checks logged.</p>
+                      <p className="text-xs text-slate-505 text-center py-4">{getTranslation(lang, 'noAtt')}</p>
                     ) : (
                       <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
                         {attendance.map((log) => (
@@ -374,22 +522,24 @@ function MemberContent() {
           </div>
         )}
 
-        {/* TAB 3: DIET WORKOUT */}
+        {/* TAB 3: DIET */}
         {activeTab === 'diet' && (
           <div className="space-y-6 animate-in fade-in duration-300 z-10">
             <h2 className="text-base font-black text-white flex items-center gap-1.5 px-1">
-              <Utensils className="h-4.5 w-4.5 text-emerald-400" /> Nutritional Guide
+              <Utensils className="h-4.5 w-4.5 text-emerald-400" /> {getTranslation(lang, 'nutritionGuide')}
             </h2>
 
             <Card glow>
               <CardHeader className="pb-3 border-b border-slate-950">
-                <CardTitle className="text-sm">Goal-Based Diet Schedule</CardTitle>
-                <CardDescription className="text-xs">Meal schedules matching target goal: <span className="text-emerald-400 font-bold uppercase">{activeGoal.replace('-', ' ')}</span></CardDescription>
+                <CardTitle className="text-sm">{getTranslation(lang, 'goalDietSchedule')}</CardTitle>
+                <CardDescription className="text-xs">
+                  Meal schedules matching target goal: <span className="text-emerald-400 font-bold uppercase">{activeGoal.replace('-', ' ')}</span>
+                </CardDescription>
               </CardHeader>
               <CardContent className="pt-4 space-y-4">
                 {dietPlanList.map((meal, idx) => (
                   <div key={idx} className="p-3.5 bg-slate-950/60 border border-slate-900 rounded-xl text-xs">
-                    <p className="font-bold text-white mb-1">Meal Option {idx + 1}</p>
+                    <p className="font-bold text-white mb-1">{getTranslation(lang, 'mealsOption')} {idx + 1}</p>
                     <p className="text-slate-400 leading-relaxed">{meal}</p>
                   </div>
                 ))}
@@ -398,7 +548,177 @@ function MemberContent() {
           </div>
         )}
 
-        {/* Dynamic bottom bar simulation */}
+        {/* TAB 4: PAYMENTS AND BANK RECEIPTS */}
+        {activeTab === 'payment' && (
+          <div className="space-y-6 animate-in fade-in duration-300 z-10 pb-6">
+            <h2 className="text-base font-black text-white flex items-center gap-1.5 px-1">
+              <CreditCard className="h-4.5 w-4.5 text-emerald-400" /> {getTranslation(lang, 'payment')}
+            </h2>
+
+            <div className="flex gap-2 p-1 bg-slate-950 rounded-xl border border-slate-900">
+              <button
+                onClick={() => setPaymentMethod('payhere')}
+                className={`flex-1 py-2 text-center rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                  paymentMethod === 'payhere'
+                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                    : 'text-slate-500 hover:text-slate-350'
+                }`}
+              >
+                PayHere Gateway
+              </button>
+              <button
+                onClick={() => setPaymentMethod('bank')}
+                className={`flex-1 py-2 text-center rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                  paymentMethod === 'bank'
+                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                    : 'text-slate-500 hover:text-slate-355'
+                }`}
+              >
+                Bank Transfer
+              </button>
+            </div>
+
+            {/* PayHere Checkout Option */}
+            {paymentMethod === 'payhere' && (
+              <Card glow>
+                <CardHeader>
+                  <CardTitle className="text-sm">{getTranslation(lang, 'payhereCheckout')}</CardTitle>
+                  <CardDescription className="text-xs">
+                    {getTranslation(lang, 'payhereDesc')}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="p-4 bg-slate-950 border border-slate-900 rounded-xl text-center">
+                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Fee Amount</span>
+                    <p className="text-2xl font-mono font-black text-emerald-450 mt-1">LKR 4,500.00</p>
+                    <p className="text-[9px] text-slate-550 mt-0.5">SaaS Growth Tier Member License</p>
+                  </div>
+
+                  <button
+                    onClick={handlePayHereCheckout}
+                    disabled={processingPayHere}
+                    className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    {processingPayHere ? (
+                      <div className="h-4 w-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <>
+                        Proceed to PayHere <Sparkles className="h-4 w-4" />
+                      </>
+                    )}
+                  </button>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Bank Transfer Receipt upload */}
+            {paymentMethod === 'bank' && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm">{getTranslation(lang, 'bankDetails')}</CardTitle>
+                  <CardDescription className="text-xs">
+                    Transfer fees manually to the gym bank account and upload your slip receipt.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {/* Bank info list */}
+                  <div className="space-y-2.5 font-mono text-[11px] text-slate-400">
+                    {localBanks.map((b, idx) => (
+                      <div key={idx} className="p-3 bg-slate-950 rounded-xl border border-slate-900">
+                        <p className="font-bold text-white">{b.bank}</p>
+                        <p className="text-slate-350 mt-0.5">Acc: {b.acc}</p>
+                        <p className="text-[9px] text-slate-550">Branch: {b.branch}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Slip upload Form */}
+                  <form onSubmit={handleSlipSubmit} className="space-y-4 pt-2 border-t border-slate-900">
+                    <div>
+                      <label className="block text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-1">
+                        {getTranslation(lang, 'selectBank')}
+                      </label>
+                      <select
+                        value={selectedBank}
+                        onChange={(e) => setSelectedBank(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-900 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none"
+                      >
+                        <option value="Commercial Bank">Commercial Bank</option>
+                        <option value="Sampath Bank">Sampath Bank</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-1">
+                        {getTranslation(lang, 'slipUpload')}
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. transfer_receipt_jul.jpg"
+                          value={slipFileName}
+                          onChange={(e) => setSlipFileName(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-900 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-slate-650 focus:outline-none"
+                        />
+                        <Upload className="absolute left-3 top-3 h-4 w-4 text-slate-600" />
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-widest rounded-xl transition-all cursor-pointer shadow-lg flex items-center justify-center gap-1.5"
+                    >
+                      <FileCheck className="h-4 w-4" /> {getTranslation(lang, 'submitReceipt')}
+                    </button>
+                  </form>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Payment history list */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">{getTranslation(lang, 'payingStatus')}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {memberSlips.length === 0 ? (
+                  <p className="text-xs text-slate-500 text-center py-4">No slip logs or checkouts processed yet.</p>
+                ) : (
+                  <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
+                    {memberSlips.map((slip) => (
+                      <div key={slip.id} className="p-3 bg-slate-950 border border-slate-900 rounded-xl flex justify-between items-center text-xs">
+                        <div>
+                          <p className="font-bold text-white">{slip.bankName}</p>
+                          <p className="text-[9px] text-slate-550 font-mono mt-0.5">{slip.slipImage} • LKR {slip.amount.toLocaleString()}</p>
+                        </div>
+                        <div>
+                          {slip.status === 'Approved' && (
+                            <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-450 rounded-md">
+                              {getTranslation(lang, 'approved')}
+                            </span>
+                          )}
+                          {slip.status === 'Pending' && (
+                            <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-450 rounded-md">
+                              {getTranslation(lang, 'pendingVerification')}
+                            </span>
+                          )}
+                          {slip.status === 'Rejected' && (
+                            <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 bg-rose-500/10 border border-rose-500/20 text-rose-455 rounded-md">
+                              {getTranslation(lang, 'rejected')}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Dynamic bottom bar */}
         <nav className="fixed bottom-0 inset-x-0 bg-slate-950/80 border-t border-slate-900 py-3 px-6 flex justify-around items-center backdrop-blur-md z-30">
           <button
             onClick={() => setActiveTab('home')}
@@ -407,7 +727,7 @@ function MemberContent() {
             }`}
           >
             <Activity className="h-5 w-5" />
-            Home
+            {getTranslation(lang, 'home')}
           </button>
           
           <button
@@ -417,7 +737,7 @@ function MemberContent() {
             }`}
           >
             <Dumbbell className="h-5 w-5" />
-            Workout Plan
+            {getTranslation(lang, 'workout')}
           </button>
 
           <button
@@ -427,7 +747,17 @@ function MemberContent() {
             }`}
           >
             <Utensils className="h-5 w-5" />
-            Diet Plan
+            {getTranslation(lang, 'diet')}
+          </button>
+
+          <button
+            onClick={() => setActiveTab('payment')}
+            className={`flex flex-col items-center gap-1 text-[10px] font-bold tracking-wide transition-colors cursor-pointer ${
+              activeTab === 'payment' ? 'text-emerald-400' : 'text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            <CreditCard className="h-5 w-5" />
+            {getTranslation(lang, 'payment')}
           </button>
         </nav>
 

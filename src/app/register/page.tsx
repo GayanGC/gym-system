@@ -50,6 +50,7 @@ export default function RegisterPage() {
         subscriptionStatus: 'Trial',
         trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
         createdAt: new Date().toISOString(),
+        autoSmsEnabled: true,
       };
 
       saveGym(newGym);

@@ -10,6 +10,7 @@ export interface Gym {
   subscriptionStatus: 'Trial' | 'Active' | 'Expired';
   trialEndsAt: string;
   createdAt: string;
+  autoSmsEnabled: boolean;
 }
 
 export interface User {
@@ -54,6 +55,26 @@ export interface Attendance {
   timestamp: string;
 }
 
+export interface PaymentSlip {
+  id: string;
+  tenantType: 'OWNER' | 'MEMBER';
+  referenceId: string; // gymId (for owner) or memberId (for member)
+  amount: number;
+  bankName: string;
+  slipImage: string; // File name or description
+  status: 'Pending' | 'Approved' | 'Rejected';
+  createdAt: string;
+}
+
+export interface SmsLog {
+  id: string;
+  gymId: string;
+  receiverPhone: string;
+  message: string;
+  triggerType: string;
+  createdAt: string;
+}
+
 const isClient = () => typeof window !== 'undefined';
 
 const getStorageItem = <T>(key: string, defaultValue: T): T => {
@@ -71,7 +92,7 @@ const setStorageItem = <T>(key: string, value: T): void => {
 export const initializeDatabase = () => {
   if (!isClient()) return;
 
-  const initialized = localStorage.getItem('fitpulse_initialized');
+  const initialized = localStorage.getItem('fitpulse_initialized_v2');
   if (initialized) return;
 
   // 1. Seed Gyms
@@ -84,8 +105,9 @@ export const initializeDatabase = () => {
       phone: '+94 77 123 4567',
       location: 'Colombo, LK',
       subscriptionStatus: 'Trial',
-      trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
+      trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       createdAt: new Date().toISOString(),
+      autoSmsEnabled: true,
     },
     {
       id: 'GYM-202',
@@ -94,15 +116,15 @@ export const initializeDatabase = () => {
       email: 'owner@powerhouse.com',
       phone: '+94 77 987 6543',
       location: 'Kandy, LK',
-      subscriptionStatus: 'Active',
-      trialEndsAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(), // Expired
+      subscriptionStatus: 'Expired',
+      trialEndsAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
       createdAt: new Date().toISOString(),
+      autoSmsEnabled: false,
     }
   ];
 
   // 2. Seed Users
   const mockUsers: User[] = [
-    // Super Admin
     {
       id: 'USR-ADMIN',
       gymId: null,
@@ -112,7 +134,6 @@ export const initializeDatabase = () => {
       phone: '+94 77 000 0000',
       createdAt: new Date().toISOString(),
     },
-    // Gym Owners
     {
       id: 'USR-OWNER-1',
       gymId: 'GYM-101',
@@ -131,7 +152,6 @@ export const initializeDatabase = () => {
       phone: '+94 77 987 6543',
       createdAt: new Date().toISOString(),
     },
-    // Trainers Gold's Gym
     {
       id: 'TRN-101',
       gymId: 'GYM-101',
@@ -152,7 +172,6 @@ export const initializeDatabase = () => {
       specialization: 'Fat Loss & Cardio',
       createdAt: new Date().toISOString(),
     },
-    // Trainers Powerhouse Gym
     {
       id: 'TRN-201',
       gymId: 'GYM-202',
@@ -163,7 +182,6 @@ export const initializeDatabase = () => {
       specialization: 'Yoga & Flexibility',
       createdAt: new Date().toISOString(),
     },
-    // Members Gold's Gym
     {
       id: 'MBR-101',
       gymId: 'GYM-101',
@@ -196,7 +214,6 @@ export const initializeDatabase = () => {
       streak: 12,
       createdAt: new Date().toISOString(),
     },
-    // Members Powerhouse Gym
     {
       id: 'MBR-201',
       gymId: 'GYM-202',
@@ -215,7 +232,6 @@ export const initializeDatabase = () => {
     }
   ];
 
-  // 3. Seed Workout Plans
   const mockPlans: WorkoutPlan[] = [
     {
       id: 'PLN-1',
@@ -228,38 +244,60 @@ export const initializeDatabase = () => {
         { name: 'Dumbbell Flyes', sets: 3, reps: 12 },
         { name: 'Pushups', sets: 3, reps: 15 }
       ]
-    },
-    {
-      id: 'PLN-2',
-      gymId: 'GYM-101',
-      memberId: 'MBR-102',
-      assignedBy: 'TRN-102',
-      createdAt: new Date().toISOString(),
-      exercises: [
-        { name: 'Barbell Squats', sets: 4, reps: 12 },
-        { name: 'Romanian Deadlifts', sets: 4, reps: 10 },
-        { name: 'Plank Hold', sets: 3, reps: 60 }
-      ]
     }
   ];
 
-  // 4. Seed Attendance
   const mockAttendance: Attendance[] = [
-    { id: 'ATT-1', gymId: 'GYM-101', memberId: 'MBR-101', timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString() },
-    { id: 'ATT-2', gymId: 'GYM-101', memberId: 'MBR-101', timestamp: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() },
-    { id: 'ATT-3', gymId: 'GYM-101', memberId: 'MBR-101', timestamp: new Date().toISOString() },
-    { id: 'ATT-4', gymId: 'GYM-101', memberId: 'MBR-102', timestamp: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() },
-    { id: 'ATT-5', gymId: 'GYM-101', memberId: 'MBR-102', timestamp: new Date().toISOString() }
+    { id: 'ATT-1', gymId: 'GYM-101', memberId: 'MBR-101', timestamp: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString() }
+  ];
+
+  // 5. Seed Payment Slips
+  const mockSlips: PaymentSlip[] = [
+    {
+      id: 'SLIP-001',
+      tenantType: 'MEMBER',
+      referenceId: 'MBR-101', // Ryan Member Gold's Gym
+      amount: 4500, // Monthly member fee LKR
+      bankName: 'Commercial Bank',
+      slipImage: 'ryan_july_slip.jpg',
+      status: 'Pending',
+      createdAt: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
+    },
+    {
+      id: 'SLIP-002',
+      tenantType: 'OWNER',
+      referenceId: 'GYM-202', // Powerhouse Gym OwnerSarah
+      amount: 29000, // SaaS renewal ~ $99 LKR equiv
+      bankName: 'Sampath Bank',
+      slipImage: 'powerhouse_renewal_receipt.png',
+      status: 'Pending',
+      createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    }
+  ];
+
+  // 6. Seed SMS logs
+  const mockSmsLogs: SmsLog[] = [
+    {
+      id: 'SMS-1',
+      gymId: 'GYM-101',
+      receiverPhone: '+94 77 444 5555',
+      message: "Welcome to Gold's Gym (Colombo)! Your workout session started at 10:15 AM. Work hard! 🔥",
+      triggerType: 'Check-in',
+      createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+    }
   ];
 
   setStorageItem('fitpulse_gyms', mockGyms);
   setStorageItem('fitpulse_users', mockUsers);
   setStorageItem('fitpulse_plans', mockPlans);
   setStorageItem('fitpulse_attendance', mockAttendance);
+  setStorageItem('fitpulse_slips', mockSlips);
+  setStorageItem('fitpulse_sms_logs', mockSmsLogs);
+  
   localStorage.setItem('fitpulse_initialized', 'true');
+  localStorage.setItem('fitpulse_initialized_v2', 'true');
 };
 
-// Auto-run if running on client
 if (isClient()) {
   initializeDatabase();
 }
@@ -289,6 +327,19 @@ export const updateGymSubscription = (gymId: string, status: 'Trial' | 'Active' 
   const gymIndex = gyms.findIndex((g) => g.id === gymId);
   if (gymIndex > -1) {
     gyms[gymIndex].subscriptionStatus = status;
+    // Set trialEndsAt if reactivated
+    if (status === 'Active') {
+      gyms[gymIndex].trialEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    }
+    setStorageItem('fitpulse_gyms', gyms);
+  }
+};
+
+export const updateGymSmsToggle = (gymId: string, enabled: boolean): void => {
+  const gyms = getGyms();
+  const gymIndex = gyms.findIndex((g) => g.id === gymId);
+  if (gymIndex > -1) {
+    gyms[gymIndex].autoSmsEnabled = enabled;
     setStorageItem('fitpulse_gyms', gyms);
   }
 };
@@ -378,7 +429,6 @@ export const getMemberWorkoutPlan = (gymId: string, memberId: string): WorkoutPl
 
 export const saveWorkoutPlan = (plan: Omit<WorkoutPlan, 'id' | 'createdAt'>): WorkoutPlan => {
   const plans = getWorkoutPlans();
-  // check if member already has plan, replace or add
   const existing = plans.find((p) => p.gymId === plan.gymId && p.memberId === plan.memberId);
   
   const newPlan: WorkoutPlan = {
@@ -414,7 +464,6 @@ export const logAttendance = (gymId: string, memberId: string): Attendance => {
   logs.push(newLog);
   setStorageItem('fitpulse_attendance', logs);
 
-  // Update member streak
   const users = getUsers();
   const memberIndex = users.findIndex((u) => u.id === memberId && u.gymId === gymId);
   if (memberIndex > -1) {
@@ -423,5 +472,64 @@ export const logAttendance = (gymId: string, memberId: string): Attendance => {
     setStorageItem('fitpulse_users', users);
   }
 
+  return newLog;
+};
+
+// Payment Slips APIs
+export const getPaymentSlips = (tenantType: 'OWNER' | 'MEMBER', referenceId?: string): PaymentSlip[] => {
+  const slips = getStorageItem<PaymentSlip[]>('fitpulse_slips', []);
+  const filteredByType = slips.filter((s) => s.tenantType === tenantType);
+  if (referenceId) {
+    return filteredByType.filter((s) => s.referenceId === referenceId);
+  }
+  return filteredByType;
+};
+
+export const addPaymentSlip = (slipData: Omit<PaymentSlip, 'id' | 'status' | 'createdAt'>): PaymentSlip => {
+  const slips = getStorageItem<PaymentSlip[]>('fitpulse_slips', []);
+  const newSlip: PaymentSlip = {
+    ...slipData,
+    id: `SLIP-${Math.floor(1000 + Math.random() * 9000)}`,
+    status: 'Pending',
+    createdAt: new Date().toISOString(),
+  };
+  slips.push(newSlip);
+  setStorageItem('fitpulse_slips', slips);
+  return newSlip;
+};
+
+export const updatePaymentSlipStatus = (slipId: string, status: 'Approved' | 'Rejected'): void => {
+  const slips = getStorageItem<PaymentSlip[]>('fitpulse_slips', []);
+  const index = slips.findIndex((s) => s.id === slipId);
+  if (index > -1) {
+    slips[index].status = status;
+    const slip = slips[index];
+    setStorageItem('fitpulse_slips', slips);
+
+    // If it is an owner slip and is approved, update their subscription to ACTIVE
+    if (slip.tenantType === 'OWNER' && status === 'Approved') {
+      updateGymSubscription(slip.referenceId, 'Active');
+    }
+  }
+};
+
+// SMS logs APIs
+export const getSmsLogs = (gymId: string): SmsLog[] => {
+  const logs = getStorageItem<SmsLog[]>('fitpulse_sms_logs', []);
+  return logs.filter((l) => l.gymId === gymId);
+};
+
+export const addSmsLog = (gymId: string, receiverPhone: string, message: string, triggerType: string): SmsLog => {
+  const logs = getStorageItem<SmsLog[]>('fitpulse_sms_logs', []);
+  const newLog: SmsLog = {
+    id: `SMS-${Math.floor(1000 + Math.random() * 9000)}`,
+    gymId,
+    receiverPhone,
+    message,
+    triggerType,
+    createdAt: new Date().toISOString(),
+  };
+  logs.push(newLog);
+  setStorageItem('fitpulse_sms_logs', logs);
   return newLog;
 };

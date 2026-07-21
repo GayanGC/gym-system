@@ -23,7 +23,14 @@ import {
   AlertTriangle,
   Lock,
   LogOut,
-  CheckCircle2
+  CheckCircle2,
+  ToggleLeft,
+  ToggleRight,
+  MessageSquare,
+  FileText,
+  FileCheck,
+  Upload,
+  Coins
 } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
 import { 
@@ -32,9 +39,16 @@ import {
   addTrainer, 
   deleteTrainer, 
   getMembers, 
-  getActiveGymId, 
+  getActiveGymId,
+  updateGymSmsToggle,
+  getSmsLogs,
+  getPaymentSlips,
+  addPaymentSlip,
+  updatePaymentSlipStatus,
   User, 
-  Gym 
+  Gym,
+  PaymentSlip,
+  SmsLog
 } from '@/lib/db';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 
@@ -61,7 +75,20 @@ function DashboardContent() {
   const [members, setMembers] = useState<User[]>([]);
   
   // Navigation / Tabs
-  const [activeTab, setActiveTab] = useState<'overview' | 'trainers' | 'qr' | 'billing'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'trainers' | 'qr' | 'slips' | 'billing'>('overview');
+
+  // SMS settings & logs state
+  const [autoSms, setAutoSms] = useState(true);
+  const [smsLogs, setSmsLogs] = useState<SmsLog[]>([]);
+
+  // Member Payment Slips uploaded
+  const [memberSlips, setMemberSlips] = useState<PaymentSlip[]>([]);
+
+  // Owner's own billing slip upload form
+  const [billingBank, setBillingBank] = useState('Commercial Bank');
+  const [billingAmount, setBillingAmount] = useState('29000');
+  const [billingSlipName, setBillingSlipName] = useState('');
+  const [ownerSlips, setOwnerSlips] = useState<PaymentSlip[]>([]);
 
   // Form states
   const [trainerForm, setTrainerForm] = useState({
@@ -72,6 +99,37 @@ function DashboardContent() {
   });
 
   // Load gym details and dependencies
+  const loadGymData = (id: string) => {
+    const currentGym = getGym(id);
+    if (!currentGym) {
+      toast({
+        title: 'Gym Not Found',
+        description: 'The specified Gym ID does not exist.',
+        type: 'error',
+      });
+      router.push('/login');
+      return;
+    }
+    setGym(currentGym);
+    setAutoSms(currentGym.autoSmsEnabled);
+    setTrainers(getTrainers(id));
+    
+    const gymMembers = getMembers(id);
+    setMembers(gymMembers);
+
+    // Get sent SMS logs
+    setSmsLogs(getSmsLogs(id));
+
+    // Get member slips
+    const allMemberSlips = getPaymentSlips('MEMBER');
+    // Filter slips belonging to members of this gym
+    const filteredSlips = allMemberSlips.filter(s => gymMembers.some(m => m.id === s.referenceId));
+    setMemberSlips(filteredSlips);
+
+    // Get owner slips for this gym
+    setOwnerSlips(getPaymentSlips('OWNER', id));
+  };
+
   useEffect(() => {
     let activeId = searchParams.get('gym_id');
     if (!activeId) {
@@ -83,41 +141,35 @@ function DashboardContent() {
       return;
     }
 
-    const currentGym = getGym(activeId);
-    if (!currentGym) {
-      toast({
-        title: 'Gym Not Found',
-        description: 'The specified Gym ID does not exist.',
-        type: 'error',
-      });
-      router.push('/login');
-      return;
-    }
-
     setGymId(activeId);
-    setGym(currentGym);
-    setTrainers(getTrainers(activeId));
-    setMembers(getMembers(activeId));
+    loadGymData(activeId);
   }, [searchParams, router, toast]);
 
-  // Sync details periodically (useful for member count changes)
+  // Sync details periodically
   useEffect(() => {
     if (!gymId) return;
     const interval = setInterval(() => {
-      const currentGym = getGym(gymId);
-      if (currentGym) {
-        setGym(currentGym);
-      }
-      setMembers(getMembers(gymId));
-    }, 2000);
+      loadGymData(gymId);
+    }, 3000);
     return () => clearInterval(interval);
   }, [gymId]);
+
+  const handleSmsToggle = () => {
+    if (!gymId || !gym) return;
+    const newValue = !autoSms;
+    updateGymSmsToggle(gymId, newValue);
+    setAutoSms(newValue);
+    toast({
+      title: 'SMS Settings Updated',
+      description: newValue ? 'Automated check-in SMS alerts enabled.' : 'Automated SMS alerts disabled.',
+      type: 'success',
+    });
+  };
 
   const handleAddTrainer = (e: React.FormEvent) => {
     e.preventDefault();
     if (!gymId || !gym) return;
 
-    // Check licensing block
     if (gym.subscriptionStatus === 'Expired') {
       toast({
         title: 'Licensing Block',
@@ -172,6 +224,49 @@ function DashboardContent() {
     });
   };
 
+  // Member Payment Slip Approval
+  const handleMemberSlipAction = (slipId: string, status: 'Approved' | 'Rejected') => {
+    updatePaymentSlipStatus(slipId, status);
+    if (gymId) loadGymData(gymId);
+    toast({
+      title: status === 'Approved' ? 'Slip Approved' : 'Slip Rejected',
+      description: `Member fee receipt status has been updated to ${status}.`,
+      type: status === 'Approved' ? 'success' : 'error',
+    });
+  };
+
+  // Owner Renew Slip Upload
+  const handleOwnerSlipSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!gymId) return;
+
+    if (!billingSlipName) {
+      toast({
+        title: 'File Required',
+        description: 'Please specify the name of the bank receipt slip document.',
+        type: 'error',
+      });
+      return;
+    }
+
+    addPaymentSlip({
+      tenantType: 'OWNER',
+      referenceId: gymId,
+      amount: parseFloat(billingAmount) || 29000,
+      bankName: billingBank,
+      slipImage: billingSlipName,
+    });
+
+    setBillingSlipName('');
+    loadGymData(gymId);
+
+    toast({
+      title: 'Renewal Slip Submitted!',
+      description: 'Super Admin will review and verify your payment shortly.',
+      type: 'success',
+    });
+  };
+
   const handleLogout = () => {
     toast({ title: 'Logged Out', description: 'Session ended.', type: 'info' });
     router.push('/login');
@@ -196,6 +291,7 @@ function DashboardContent() {
   const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&color=0f172a&bgcolor=ffffff&data=${encodeURIComponent(joinUrl)}`;
 
   const isExpired = gym.subscriptionStatus === 'Expired';
+  const pendingMemberSlipsCount = memberSlips.filter(s => s.status === 'Pending').length;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col lg:flex-row relative">
@@ -304,6 +400,24 @@ function DashboardContent() {
             </button>
 
             <button
+              onClick={() => setActiveTab('slips')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group font-semibold text-sm relative cursor-pointer ${
+                activeTab === 'slips'
+                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/50 border border-transparent'
+              }`}
+            >
+              <FileText className="h-4.5 w-4.5" />
+              Member Slips
+              {pendingMemberSlipsCount > 0 && (
+                <span className="absolute right-3 top-2.5 h-4.5 w-4.5 rounded-full bg-emerald-500 text-slate-950 font-mono text-[9px] flex items-center justify-center font-black animate-pulse">
+                  {pendingMemberSlipsCount}
+                </span>
+              )}
+              <ChevronRight className={`ml-auto h-4 w-4 transition-transform ${activeTab === 'slips' ? 'translate-x-0' : 'opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5'}`} />
+            </button>
+
+            <button
               onClick={() => setActiveTab('billing')}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group font-semibold text-sm cursor-pointer ${
                 activeTab === 'billing'
@@ -349,14 +463,14 @@ function DashboardContent() {
               </div>
               <h2 className="text-2xl font-black text-white tracking-tight">License Expired</h2>
               <p className="text-slate-400 max-w-sm mt-2 text-sm">
-                Your subscription license for <span className="text-white font-bold">{gym.gymName}</span> has expired. Please update your payment information to regain access.
+                Your subscription license for <span className="text-white font-bold">{gym.gymName}</span> has expired. Please upload your payment bank transfer receipt slip in the Billing section to renew access.
               </p>
               <div className="mt-6 flex gap-4">
                 <button
                   onClick={() => setActiveTab('billing')}
                   className="px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-xs uppercase tracking-widest rounded-xl shadow-lg cursor-pointer"
                 >
-                  Manage Subscription
+                  Renew / Upload Slip
                 </button>
                 <button
                   onClick={handleLogout}
@@ -430,7 +544,7 @@ function DashboardContent() {
                   </CardHeader>
                   <CardContent>
                     <div className="text-3xl font-black text-white font-mono">{trainers.length}</div>
-                    <p className="text-xs text-slate-500 mt-1">Staff roster directories</p>
+                    <p className="text-xs text-slate-505 mt-1">Staff roster directories</p>
                   </CardContent>
                 </Card>
 
@@ -448,55 +562,94 @@ function DashboardContent() {
                 </Card>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">Gym Settings & Info</CardTitle>
-                    <CardDescription>System parameters for your multi-tenant subscription.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex justify-between items-center py-2 border-b border-slate-900">
-                      <span className="text-slate-400 text-sm">Owner Name</span>
-                      <span className="text-sm text-white font-semibold">{gym.ownerName}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2 border-b border-slate-900">
-                      <span className="text-slate-400 text-sm">Tenant Email</span>
-                      <span className="text-sm text-slate-300">{gym.email}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2 border-b border-slate-900">
-                      <span className="text-slate-400 text-sm">Phone Contact</span>
-                      <span className="text-sm text-slate-300">{gym.phone}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2">
-                      <span className="text-slate-400 text-sm">Location Area</span>
-                      <span className="text-sm text-white font-semibold">{gym.location}</span>
-                    </div>
-                  </CardContent>
-                </Card>
+              {/* Sri Lankan SMS settings card & Logs */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                
+                {/* SMS Controls card */}
+                <div className="lg:col-span-5 space-y-6">
+                  <Card glow={autoSms}>
+                    <CardHeader>
+                      <CardTitle className="text-lg flex items-center justify-between">
+                        <span>SMS Gateway Control</span>
+                        <button onClick={handleSmsToggle} className="text-emerald-400 cursor-pointer">
+                          {autoSms ? (
+                            <ToggleRight className="h-8 w-8 stroke-[1.5] text-emerald-400" />
+                          ) : (
+                            <ToggleLeft className="h-8 w-8 stroke-[1.5] text-slate-600" />
+                          )}
+                        </button>
+                      </CardTitle>
+                      <CardDescription>
+                        SMS triggers integrated with Sri Lankan SMS networks (Textware / Dialog BizSMS).
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="flex justify-between items-center py-2 border-b border-slate-900 text-xs">
+                        <span className="text-slate-400">Auto SMS Check-ins</span>
+                        <span className={`font-bold uppercase ${autoSms ? 'text-emerald-400' : 'text-slate-500'}`}>
+                          {autoSms ? 'Active' : 'Disabled'}
+                        </span>
+                      </div>
+                      
+                      <div className="flex justify-between items-center py-2 border-b border-slate-900 text-xs">
+                        <span className="text-slate-400">Renewal Alerts (3 days prior)</span>
+                        <span className={`font-bold uppercase ${autoSms ? 'text-emerald-400' : 'text-slate-500'}`}>
+                          {autoSms ? 'Active' : 'Disabled'}
+                        </span>
+                      </div>
 
-                <Card>
+                      <div className="p-3 bg-slate-950 border border-slate-900 rounded-xl text-[10px] text-slate-500 leading-normal">
+                        <strong>LANKA SMS Rules:</strong> Outgoing alerts are targeted at local operators (Dialog, Mobitel, Hutch). Costs are deducted from your prepaid SMS balance.
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Settings card */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">Gym Parameters</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3 text-xs">
+                      <div className="flex justify-between py-1.5 border-b border-slate-900">
+                        <span className="text-slate-500">Owner Contact</span>
+                        <span className="text-white font-bold">{gym.ownerName}</span>
+                      </div>
+                      <div className="flex justify-between py-1.5 border-b border-slate-900">
+                        <span className="text-slate-500">Phone Contact</span>
+                        <span className="text-slate-300">{gym.phone}</span>
+                      </div>
+                      <div className="flex justify-between py-1.5">
+                        <span className="text-slate-500">Location Area</span>
+                        <span className="text-white font-bold">{gym.location}</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* SMS Sent Logs list */}
+                <Card className="lg:col-span-7">
                   <CardHeader>
-                    <CardTitle className="text-lg">Onboarded Members</CardTitle>
-                    <CardDescription>Recently registered member check-ins.</CardDescription>
+                    <CardTitle className="text-lg flex items-center gap-1.5">
+                      <MessageSquare className="h-5 w-5 text-emerald-400" /> Outbound SMS Logs
+                    </CardTitle>
+                    <CardDescription>Sent notifications via LANKA SMS gateways.</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    {members.length === 0 ? (
-                      <div className="h-44 flex flex-col justify-center items-center text-center p-6 border border-dashed border-slate-800 rounded-2xl">
-                        <QrCode className="h-10 w-10 text-slate-600 mb-2" />
-                        <p className="text-xs text-slate-500">No members onboarded yet.</p>
+                    {smsLogs.length === 0 ? (
+                      <div className="h-52 flex flex-col justify-center items-center text-center p-6 border border-dashed border-slate-850 rounded-2xl bg-slate-950/20">
+                        <MessageSquare className="h-8 w-8 text-slate-700 mb-2" />
+                        <p className="text-xs text-slate-550">No SMS logs recorded under this gym yet.</p>
                       </div>
                     ) : (
-                      <div className="space-y-3 max-h-[220px] overflow-y-auto">
-                        {members.map((member) => (
-                          <div key={member.id} className="flex justify-between items-center p-3 rounded-xl bg-slate-950/40 border border-slate-900">
-                            <div>
-                              <p className="text-xs font-bold text-white">{member.name}</p>
-                              <p className="text-[9px] text-emerald-400 font-semibold uppercase tracking-wider">{member.goal?.replace('-', ' ')}</p>
+                      <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
+                        {smsLogs.map((log) => (
+                          <div key={log.id} className="p-3 bg-slate-950/80 border border-slate-900 rounded-xl text-[11px] space-y-1.5">
+                            <div className="flex justify-between items-center text-slate-500 font-bold uppercase tracking-wider text-[9px]">
+                              <span>To: {log.receiverPhone}</span>
+                              <span className="px-2 py-0.5 bg-slate-900 border border-slate-800 text-slate-400 rounded-md font-mono">{log.triggerType}</span>
                             </div>
-                            <div className="text-right">
-                              <p className="text-xs text-slate-400 font-mono">{member.phone}</p>
-                              <p className="text-[9px] text-slate-500">Streak: {member.streak || 0} days</p>
-                            </div>
+                            <p className="text-slate-300 leading-normal font-sans">"{log.message}"</p>
+                            <p className="text-[9px] text-slate-600 font-mono text-right">{new Date(log.createdAt).toLocaleString()}</p>
                           </div>
                         ))}
                       </div>
@@ -527,7 +680,7 @@ function DashboardContent() {
                           placeholder="e.g. Mike Coach"
                           value={trainerForm.name}
                           onChange={(e) => setTrainerForm(prev => ({ ...prev, name: e.target.value }))}
-                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-emerald-500 animate-none"
                         />
                       </div>
 
@@ -650,7 +803,7 @@ function DashboardContent() {
 
                     <h3 className="text-2xl font-extrabold tracking-tight text-slate-900">Scan to Register</h3>
                     
-                    <div className="my-5 p-4 bg-slate-100 rounded-[2rem] border border-slate-200 shadow-inner flex items-center justify-center">
+                    <div className="my-5 p-4 bg-slate-100 rounded-[2.5rem] border border-slate-200 shadow-inner flex items-center justify-center">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={qrImageUrl} alt="Gym Onboarding QR Code" className="w-48 h-48 border border-white rounded-xl" />
                     </div>
@@ -685,7 +838,92 @@ function DashboardContent() {
             </div>
           )}
 
-          {/* TAB 4: BILLING & LICENSING */}
+          {/* TAB 4: MEMBER SLIPS APPROVAL */}
+          {activeTab === 'slips' && (
+            <div className="space-y-8 animate-in fade-in duration-300">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Member Subscription slips</CardTitle>
+                  <CardDescription>Review bank slips submitted by gym members for monthly fees.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {memberSlips.length === 0 ? (
+                    <div className="h-64 flex flex-col justify-center items-center text-center p-6 border border-dashed border-slate-850 rounded-2xl bg-slate-950/20">
+                      <FileText className="h-10 w-10 text-slate-700 mb-2" />
+                      <p className="text-xs text-slate-500">No member slips uploaded yet.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-900 text-slate-400 text-xs font-bold uppercase tracking-wider">
+                            <th className="py-3 px-4">Slip ID</th>
+                            <th className="py-3 px-4">Member Name</th>
+                            <th className="py-3 px-4">Bank Name</th>
+                            <th className="py-3 px-4">Amount LKR</th>
+                            <th className="py-3 px-4">Slip File</th>
+                            <th className="py-3 px-4">Status</th>
+                            <th className="py-3 px-4 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-900/60">
+                          {memberSlips.map((slip) => {
+                            const memberDetails = members.find(m => m.id === slip.referenceId);
+                            return (
+                              <tr key={slip.id} className="hover:bg-slate-900/10 transition-colors">
+                                <td className="py-3 px-4 font-mono text-xs text-slate-500">{slip.id}</td>
+                                <td className="py-3 px-4 font-bold text-white">
+                                  {memberDetails ? memberDetails.name : 'Unknown Member'}
+                                  <p className="text-[10px] text-slate-500 font-mono font-normal mt-0.5">{slip.referenceId}</p>
+                                </td>
+                                <td className="py-3 px-4 text-xs font-semibold text-slate-300">{slip.bankName}</td>
+                                <td className="py-3 px-4 font-mono text-xs font-bold text-emerald-400">
+                                  LKR {slip.amount.toLocaleString()}
+                                </td>
+                                <td className="py-3 px-4">
+                                  <div className="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-500/5 px-2 py-1 border border-emerald-500/10 rounded-lg w-fit">
+                                    <FileCheck className="h-3.5 w-3.5" />
+                                    <span className="font-mono text-[10px]">{slip.slipImage}</span>
+                                  </div>
+                                </td>
+                                <td className="py-3 px-4 text-xs">
+                                  {slip.status === 'Approved' && <span className="text-emerald-400 font-bold">Approved</span>}
+                                  {slip.status === 'Pending' && <span className="text-amber-400 font-bold">Pending</span>}
+                                  {slip.status === 'Rejected' && <span className="text-rose-400 font-bold">Rejected</span>}
+                                </td>
+                                <td className="py-3 px-4 text-right">
+                                  {slip.status === 'Pending' ? (
+                                    <div className="flex justify-end gap-1.5">
+                                      <button
+                                        onClick={() => handleMemberSlipAction(slip.id, 'Approved')}
+                                        className="px-2 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-[10px] font-black uppercase rounded-lg transition-all cursor-pointer"
+                                      >
+                                        Approve
+                                      </button>
+                                      <button
+                                        onClick={() => handleMemberSlipAction(slip.id, 'Rejected')}
+                                        className="px-2 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-455 text-[10px] font-bold uppercase border border-rose-500/30 rounded-lg transition-all cursor-pointer"
+                                      >
+                                        Reject
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-500 italic">Verified</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* TAB 5: BILLING & LICENSING */}
           {activeTab === 'billing' && (
             <div className="space-y-8 animate-in fade-in duration-300 max-w-2xl mx-auto w-full">
               <Card>
@@ -718,41 +956,114 @@ function DashboardContent() {
                     </div>
                   </div>
 
-                  {/* Plan Information */}
+                  {/* Pricing Plan details */}
                   <div className="grid grid-cols-2 gap-4">
                     <div className="p-4 bg-slate-950 border border-slate-900 rounded-xl">
-                      <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Pricing Plan</span>
+                      <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">SaaS Pricing</span>
                       <p className="text-base font-bold text-white mt-1">Growth Tier</p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">$99.00 / month flat rate</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">29,000 LKR ($99) / month</p>
                     </div>
                     
                     <div className="p-4 bg-slate-950 border border-slate-900 rounded-xl">
-                      <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Billing Renewal</span>
-                      <p className="text-base font-bold text-white mt-1">Monthly</p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">Expires: {new Date(gym.trialEndsAt).toLocaleDateString()}</p>
+                      <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Expiry / Renewal</span>
+                      <p className="text-base font-bold text-white mt-1">Monthly cycle</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Valid until: {new Date(gym.trialEndsAt).toLocaleDateString()}</p>
                     </div>
                   </div>
 
-                  {/* Renew Form Mock action */}
-                  <div className="border-t border-slate-900 pt-6">
-                    <h4 className="text-sm font-bold text-white mb-4">Upgrade / Renew License</h4>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        toast({
-                          title: 'SaaS Simulation Triggered',
-                          description: 'Contact Super Admin at admin@fitpulse.ai to alter subscription status.',
-                          type: 'info',
-                        });
-                      }}
-                      className="px-6 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-black text-xs uppercase tracking-widest rounded-xl shadow-lg cursor-pointer"
-                    >
-                      Process Payment Renewal
-                    </button>
-                    <p className="text-[10px] text-slate-500 mt-2">
-                      Secured by FitPulse Payment Processor. Simulated for multi-tenant evaluation.
+                  {/* direct bank transfer details */}
+                  <div className="p-5 border border-slate-900 bg-slate-950/40 rounded-2xl space-y-4">
+                    <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                      <Building2 className="h-4.5 w-4.5 text-emerald-400" /> Sri Lankan Bank Transfer Registry
+                    </h4>
+                    <p className="text-xs text-slate-400">
+                      Transfer subscription fees to either bank listed below and upload the receipt slip.
                     </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-mono">
+                      <div className="p-3 bg-slate-950 rounded-xl border border-slate-900/60">
+                        <p className="font-bold text-white">Commercial Bank</p>
+                        <p className="text-slate-450 mt-1">Acc: 1002003004</p>
+                        <p className="text-slate-550 text-[10px]">Branch: Colombo 07</p>
+                      </div>
+                      <div className="p-3 bg-slate-950 rounded-xl border border-slate-900/60">
+                        <p className="font-bold text-white">Sampath Bank</p>
+                        <p className="text-slate-450 mt-1">Acc: 9008007006</p>
+                        <p className="text-slate-550 text-[10px]">Branch: Kandy Main</p>
+                      </div>
+                    </div>
+
+                    {/* Slip Uploader form */}
+                    <form onSubmit={handleOwnerSlipSubmit} className="border-t border-slate-900/80 pt-4 space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Select Target Bank</label>
+                          <select
+                            value={billingBank}
+                            onChange={(e) => setBillingBank(e.target.value)}
+                            className="w-full bg-slate-950 border border-slate-900 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none"
+                          >
+                            <option value="Commercial Bank">Commercial Bank</option>
+                            <option value="Sampath Bank">Sampath Bank</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Amount (LKR)</label>
+                          <input
+                            type="text"
+                            required
+                            value={billingAmount}
+                            onChange={(e) => setBillingAmount(e.target.value)}
+                            className="w-full bg-slate-950 border border-slate-900 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Receipt File Name / Upload</label>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. commbank_transfer_slip.jpg"
+                            value={billingSlipName}
+                            onChange={(e) => setBillingSlipName(e.target.value)}
+                            className="w-full bg-slate-950 border border-slate-900 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-slate-650 focus:outline-none"
+                          />
+                          <Upload className="absolute left-3 top-3 h-4 w-4 text-slate-600" />
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <FileCheck className="h-4 w-4" /> Submit Renewal Slip
+                      </button>
+                    </form>
                   </div>
+
+                  {/* List of uploaded owner slips */}
+                  {ownerSlips.length > 0 && (
+                    <div className="border-t border-slate-900 pt-6">
+                      <h4 className="text-sm font-bold text-white mb-3">Submitted Slip Statuses</h4>
+                      <div className="space-y-2">
+                        {ownerSlips.map((slip) => (
+                          <div key={slip.id} className="p-3 bg-slate-950 border border-slate-900 rounded-xl flex justify-between items-center text-xs">
+                            <div>
+                              <p className="font-bold text-white">{slip.bankName}</p>
+                              <p className="text-[10px] text-slate-500 font-mono mt-0.5">{slip.slipImage} • LKR {slip.amount.toLocaleString()}</p>
+                            </div>
+                            <div className="text-right">
+                              {slip.status === 'Pending' && <span className="text-amber-400 font-bold uppercase tracking-wider text-[9px] px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 rounded-md">Pending</span>}
+                              {slip.status === 'Approved' && <span className="text-emerald-400 font-bold uppercase tracking-wider text-[9px] px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded-md">Approved</span>}
+                              {slip.status === 'Rejected' && <span className="text-rose-400 font-bold uppercase tracking-wider text-[9px] px-2 py-0.5 bg-rose-500/10 border border-rose-500/20 rounded-md">Rejected</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                 </CardContent>
               </Card>
